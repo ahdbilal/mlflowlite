@@ -1,0 +1,22 @@
+# Core Dependencies
+mlflow>=2.10.0
+litellm>=1.30.0
+pydantic>=2.0.0
+python-dotenv>=1.0.0
+
+# LLM Providers
+openai>=1.12.0
+anthropic>=0.18.0
+google-generativeai>=0.3.0
+
+# DSPy for Prompt Optimization
+dspy-ai>=2.4.0
+
+# Tools and Utilities
+requests>=2.31.0
+tenacity>=8.2.0
+tiktoken>=0.5.0
+
+# Optional Dependencies
+# databricks-ai-gateway>=0.1.0  # For managed gateway mode
+
