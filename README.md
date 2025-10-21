@@ -85,6 +85,15 @@ response = ml.query(model='claude-3-5-sonnet', prompt='...', input='...')
 # LiteLLM-style completion
 response = ml.completion(model='claude-3-5-sonnet', messages=[...])
 
+# With reliability features
+response = ml.completion(
+    model='claude-3-5-sonnet',
+    messages=[...],
+    timeout=30,                              # seconds
+    max_retries=5,                           # retry attempts
+    fallback_models=['gpt-4o', 'gpt-3.5-turbo']  # fallback chain
+)
+
 # Batch processing
 responses = ml.batch_completion(model='claude-3-5-sonnet', messages_list=[...])
 
@@ -92,9 +101,12 @@ responses = ml.batch_completion(model='claude-3-5-sonnet', messages_list=[...])
 ml.print_suggestions(response, use_llm=False)  # heuristic
 ml.print_suggestions(response, use_llm=True)   # LLM-powered
 
-# Control
+# Configuration
 ml.set_mlflow_tracking(enabled=True)
 ml.set_suggestion_provider("claude-3-5-sonnet")
+ml.set_timeout(60)                           # default timeout
+ml.set_max_retries(3)                        # default retries
+ml.set_fallback_models(['gpt-4o', 'gpt-3.5-turbo'])  # default fallbacks
 ```
 
 ### Response Object

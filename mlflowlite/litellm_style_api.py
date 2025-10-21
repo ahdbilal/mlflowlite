@@ -20,10 +20,11 @@ Usage:
     )
 """
 
-from typing import List, Dict, Any, Optional, Union
+from typing import List, Dict, Any, Optional, Union, Callable
 from dataclasses import dataclass
 import time
 import mlflow
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from mlflowlite.llm.providers import get_provider
 from mlflowlite.llm.base import Message, MessageRole, LLMResponse
 
@@ -64,6 +65,9 @@ class Response:
 _mlflow_enabled = True
 _auto_evaluate = True
 _provider_for_suggestions = None
+_default_timeout = 60.0  # seconds
+_default_max_retries = 3
+_default_fallback_models = None
 
 
 def set_mlflow_tracking(enabled: bool = True):
@@ -76,6 +80,39 @@ def set_auto_evaluate(enabled: bool = True):
     """Enable or disable automatic evaluation."""
     global _auto_evaluate
     _auto_evaluate = enabled
+
+
+def set_timeout(timeout: float):
+    """
+    Set the default timeout for LLM requests.
+    
+    Args:
+        timeout: Timeout in seconds (default: 60)
+    """
+    global _default_timeout
+    _default_timeout = timeout
+
+
+def set_max_retries(max_retries: int):
+    """
+    Set the default number of retries for failed requests.
+    
+    Args:
+        max_retries: Number of retry attempts (default: 3)
+    """
+    global _default_max_retries
+    _default_max_retries = max_retries
+
+
+def set_fallback_models(models: Optional[List[str]]):
+    """
+    Set default fallback models to try if primary model fails.
+    
+    Args:
+        models: List of model names to try in order, e.g., ["claude-3-5-sonnet", "gpt-4o", "gpt-3.5-turbo"]
+    """
+    global _default_fallback_models
+    _default_fallback_models = models
 
 
 def set_suggestion_provider(model: str = "claude-3-5-sonnet"):
@@ -97,105 +134,133 @@ def set_suggestion_provider(model: str = "claude-3-5-sonnet"):
     _provider_for_suggestions = get_provider(model=model)
 
 
-def completion(
+def _completion_with_reliability(
     model: str,
     messages: List[Dict[str, str]],
-    temperature: float = 0.7,
-    max_tokens: Optional[int] = None,
-    tools: Optional[List[Dict[str, Any]]] = None,
-    stream: bool = False,
-    api_key: Optional[str] = None,
+    temperature: float,
+    max_tokens: Optional[int],
+    tools: Optional[List[Dict[str, Any]]],
+    api_key: Optional[str],
+    timeout: Optional[float],
+    max_retries: Optional[int],
+    fallback_models: Optional[List[str]],
     **kwargs
 ) -> Response:
     """
-    Create a completion (LiteLLM-style interface).
-    
-    This is the main function - works just like litellm.completion() but with
-    automatic MLflow tracing and evaluation.
-    
-    Args:
-        model: Model name (e.g., "claude-3-5-sonnet", "gpt-4o")
-        messages: List of message dicts with "role" and "content"
-        temperature: Sampling temperature (0.0 to 1.0)
-        max_tokens: Maximum tokens in response
-        tools: Tool definitions (OpenAI format)
-        stream: Whether to stream the response (not yet implemented)
-        api_key: API key for the provider
-        **kwargs: Additional provider-specific parameters
-    
-    Returns:
-        Response object with content, usage, cost, and trace_id
-    
-    Example:
-        >>> import mlflowlite as mla
-        >>> response = mla.completion(
-        ...     model="claude-3-5-sonnet",
-        ...     messages=[{"role": "user", "content": "Hello!"}]
-        ... )
-        >>> print(response.content)
-        >>> print(f"Cost: ${response.cost:.4f}")
+    Internal completion with retry, timeout, and fallback logic.
     """
-    start_time = time.time()
+    models_to_try = [model]
+    if fallback_models:
+        models_to_try.extend(fallback_models)
     
-    # Start MLflow tracking if enabled
+    last_error = None
+    retries_used = max_retries or _default_max_retries
+    timeout_val = timeout or _default_timeout
+    
+    for attempt_model in models_to_try:
+        for attempt in range(retries_used):
+            try:
+                return _execute_completion(
+                    model=attempt_model,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    tools=tools,
+                    api_key=api_key,
+                    timeout=timeout_val,
+                    **kwargs
+                )
+            except Exception as e:
+                last_error = e
+                if attempt < retries_used - 1:
+                    wait_time = min(2 ** attempt, 10)  # Exponential backoff, max 10s
+                    time.sleep(wait_time)
+                    continue
+                # If this was the last retry for this model, try next model
+                break
+    
+    # All models and retries exhausted
+    raise RuntimeError(f"All models failed after retries. Last error: {last_error}")
+
+
+def _execute_completion(
+    model: str,
+    messages: List[Dict[str, str]],
+    temperature: float,
+    max_tokens: Optional[int],
+    tools: Optional[List[Dict[str, Any]]],
+    api_key: Optional[str],
+    timeout: float,
+    **kwargs
+) -> Response:
+    """Execute a single completion attempt with timeout."""
+    import signal
+    
+    def timeout_handler(signum, frame):
+        raise TimeoutError(f"Request timed out after {timeout}s")
+    
+    start_time = time.time()
     trace_id = None
     run_context = None
     
     if _mlflow_enabled:
         try:
-            # Set experiment
             mlflow.set_experiment("mlflowlite")
         except Exception:
             mlflow.create_experiment("mlflowlite")
             mlflow.set_experiment("mlflowlite")
         
-        # Start run
         run_context = mlflow.start_run(run_name=f"{model}_{int(start_time)}")
         trace_id = run_context.__enter__().info.run_id
         
-        # Log parameters
         mlflow.log_param("model", model)
         mlflow.log_param("temperature", temperature)
         mlflow.log_param("message_count", len(messages))
+        mlflow.log_param("timeout", timeout)
     
     try:
-        # Get provider and call LLM
-        provider = get_provider(
-            model=model,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            api_key=api_key,
-            **kwargs
-        )
+        # Set timeout (Unix-only, skip on Windows)
+        import platform
+        if platform.system() != 'Windows' and timeout > 0:
+            signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(int(timeout))
         
-        # Convert messages to our format
-        message_objects = [
-            Message(
-                role=MessageRole(msg["role"]),
-                content=msg["content"]
+        try:
+            provider = get_provider(
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                api_key=api_key,
+                **kwargs
             )
-            for msg in messages
-        ]
-        
-        # Make the call
-        if _mlflow_enabled:
-            with mlflow.start_span(name="llm_completion", span_type="LLM") as span:
-                span.set_attribute("model", model)
+            
+            message_objects = [
+                Message(
+                    role=MessageRole(msg["role"]),
+                    content=msg["content"]
+                )
+                for msg in messages
+            ]
+            
+            if _mlflow_enabled:
+                with mlflow.start_span(name="llm_completion", span_type="LLM") as span:
+                    span.set_attribute("model", model)
+                    llm_response = provider.complete(message_objects, tools=tools)
+            else:
                 llm_response = provider.complete(message_objects, tools=tools)
-        else:
-            llm_response = provider.complete(message_objects, tools=tools)
+        finally:
+            # Cancel timeout
+            if platform.system() != 'Windows' and timeout > 0:
+                signal.alarm(0)
         
-        # Calculate metrics
         latency = time.time() - start_time
         usage = llm_response.usage or {}
         total_tokens = usage.get("total_tokens", 0)
         prompt_tokens = usage.get("prompt_tokens", 0)
         completion_tokens = usage.get("completion_tokens", 0)
         
-        # Estimate cost
         cost = _estimate_cost(model, prompt_tokens, completion_tokens)
         
-        # Auto-evaluate if enabled
         scores = None
         if _auto_evaluate:
             scores = _quick_evaluate(
@@ -204,7 +269,6 @@ def completion(
                 tokens=total_tokens,
             )
         
-        # Log to MLflow
         if _mlflow_enabled:
             mlflow.log_metric("latency_seconds", latency)
             mlflow.log_metric("total_tokens", total_tokens)
@@ -214,10 +278,8 @@ def completion(
                 for metric, score in scores.items():
                     mlflow.log_metric(f"score_{metric}", score)
             
-            # Log response preview
             mlflow.log_param("response_preview", llm_response.content[:200])
         
-        # Create response object
         response = Response(
             content=llm_response.content,
             model=model,
@@ -239,6 +301,75 @@ def completion(
             run_context.__exit__(None, None, None)
 
 
+def completion(
+    model: str,
+    messages: List[Dict[str, str]],
+    temperature: float = 0.7,
+    max_tokens: Optional[int] = None,
+    tools: Optional[List[Dict[str, Any]]] = None,
+    stream: bool = False,
+    api_key: Optional[str] = None,
+    timeout: Optional[float] = None,
+    max_retries: Optional[int] = None,
+    fallback_models: Optional[List[str]] = None,
+    **kwargs
+) -> Response:
+    """
+    Create a completion (LiteLLM-style interface).
+    
+    This is the main function - works just like litellm.completion() but with
+    automatic MLflow tracing, evaluation, and reliability features.
+    
+    Args:
+        model: Model name (e.g., "claude-3-5-sonnet", "gpt-4o")
+        messages: List of message dicts with "role" and "content"
+        temperature: Sampling temperature (0.0 to 1.0)
+        max_tokens: Maximum tokens in response
+        tools: Tool definitions (OpenAI format)
+        stream: Whether to stream the response (not yet implemented)
+        api_key: API key for the provider
+        timeout: Request timeout in seconds (default: 60)
+        max_retries: Number of retry attempts (default: 3)
+        fallback_models: List of fallback models if primary fails
+        **kwargs: Additional provider-specific parameters
+    
+    Returns:
+        Response object with content, usage, cost, and trace_id
+    
+    Example:
+        >>> import mlflowlite as ml
+        >>> 
+        >>> # Basic usage
+        >>> response = ml.completion(
+        ...     model="claude-3-5-sonnet",
+        ...     messages=[{"role": "user", "content": "Hello!"}]
+        ... )
+        >>> 
+        >>> # With reliability features
+        >>> response = ml.completion(
+        ...     model="claude-3-5-sonnet",
+        ...     messages=[{"role": "user", "content": "Hello!"}],
+        ...     timeout=30,
+        ...     max_retries=5,
+        ...     fallback_models=["gpt-4o", "gpt-3.5-turbo"]
+        ... )
+    """
+    fallback = fallback_models or _default_fallback_models
+    
+    return _completion_with_reliability(
+        model=model,
+        messages=messages,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        tools=tools,
+        api_key=api_key,
+        timeout=timeout,
+        max_retries=max_retries,
+        fallback_models=fallback,
+        **kwargs
+    )
+
+
 def query(
     model: str,
     prompt: str,
@@ -246,6 +377,9 @@ def query(
     temperature: float = 0.7,
     max_tokens: Optional[int] = None,
     api_key: Optional[str] = None,
+    timeout: Optional[float] = None,
+    max_retries: Optional[int] = None,
+    fallback_models: Optional[List[str]] = None,
     **kwargs
 ) -> Response:
     """
@@ -286,6 +420,9 @@ def query(
         temperature=temperature,
         max_tokens=max_tokens,
         api_key=api_key,
+        timeout=timeout,
+        max_retries=max_retries,
+        fallback_models=fallback_models,
         **kwargs
     )
 
