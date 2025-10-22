@@ -22,6 +22,15 @@ from mlflowlite.litellm_style_api import (
     print_response,
 )
 
+# Advanced routing
+from mlflowlite.routing import (
+    smart_query,
+    create_ab_test,
+    SmartRouter,
+    ABTest,
+    RoutingDecision,
+)
+
 # Simple notebook-style API (alternative - legacy, for backwards compatibility)
 from mlflowlite.simple_api import (
     ai_query,
@@ -50,6 +59,12 @@ __all__ = [
     "print_suggestions",
     "get_available_models",
     "print_response",
+    # Advanced routing
+    "smart_query",
+    "create_ab_test",
+    "SmartRouter",
+    "ABTest",
+    "RoutingDecision",
     # Simple API (alternative - legacy, for backwards compatibility)
     "ai_query",
     "compare_models",
