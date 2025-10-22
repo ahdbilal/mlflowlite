@@ -65,11 +65,32 @@ print(f"v2: {result_v2.trace.total_tokens} tokens")
 Get specific improvement suggestions.
 
 ```python
-# Fast heuristic
+ml.set_suggestion_provider("claude-3-5-sonnet")
 ml.print_suggestions(response)
+```
 
-# LLM-powered (smarter)
-ml.print_suggestions(response, use_llm=True)
+### 4. Smart Routing
+Automatically select the best model based on query complexity.
+
+```python
+# Analyzes complexity and picks the right model
+decision, response = ml.smart_query("Explain quantum computing")
+print(f"Selected {decision.model}: {decision.reason}")
+```
+
+### 5. A/B Testing
+Data-driven model and prompt optimization.
+
+```python
+test = ml.create_ab_test(
+    name="model_test",
+    variants={
+        'A': {'model': 'gpt-4o'},
+        'B': {'model': 'claude-3-5-sonnet'}
+    }
+)
+variant, response = test.run(messages=[...])
+test.print_report()  # See which performs better
 ```
 
 ## API
@@ -155,6 +176,8 @@ mlflow ui
 - `MLflowlite_Demo.ipynb` - Interactive demo
 - `complete_demo.py` - Full Python demo
 - `examples/quick_start.py` - Minimal example
+- `examples/reliability_demo.py` - Retry, timeout, fallbacks
+- `examples/routing_demo.py` - Smart routing & A/B testing
 
 ## Structure
 
