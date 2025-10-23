@@ -89,13 +89,44 @@ def _get_experiment_name() -> str:
         import os
         # Check for Databricks-specific environment variables
         if 'DATABRICKS_RUNTIME_VERSION' in os.environ or os.path.exists('/databricks'):
-            # Get username for Databricks path
-            username = os.environ.get('USER', 'user')
-            return f"/Users/{username}/mlflowlite"
+            # Try to get actual workspace username (not cluster user)
+            username = None
+            
+            # Method 1: Try dbutils context (most reliable)
+            try:
+                from pyspark.dbutils import DBUtils
+                from pyspark.sql import SparkSession
+                spark = SparkSession.builder.getOrCreate()
+                dbutils = DBUtils(spark)
+                username = dbutils.notebook.entry_point.getDbutils().notebook().getContext().userName().get()
+            except:
+                pass
+            
+            # Method 2: Check environment variables
+            if not username:
+                username = os.environ.get('DB_USER') or os.environ.get('DATABRICKS_USER')
+            
+            # Method 3: Fall back to shared experiments path
+            if not username:
+                # Use shared experiments folder as fallback
+                return "/Shared/mlflowlite"
+            
+            # Clean username if it has @ in it (email)
+            if username and '@' in username:
+                # Use the email as-is for the path
+                return f"/Users/{username}/mlflowlite"
+            elif username:
+                return f"/Users/{username}/mlflowlite"
+            else:
+                return "/Shared/mlflowlite"
         else:
             # Local or other environments
             return "mlflowlite"
-    except:
+    except Exception as e:
+        # If detection fails, use safe default for Databricks
+        import os
+        if 'DATABRICKS_RUNTIME_VERSION' in os.environ:
+            return "/Shared/mlflowlite"
         return "mlflowlite"
 
 

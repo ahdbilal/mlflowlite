@@ -9,8 +9,16 @@ The library automatically detects Databricks and uses proper experiment paths:
 ```python
 import mlflowlite as ml
 
-# Automatically uses /Users/your.email@company.com/mlflowlite in Databricks
+# Automatically detects your Databricks username and uses:
+# - /Users/your.email@company.com/mlflowlite (if username detected)
+# - /Shared/mlflowlite (fallback if username not available)
 response = ml.query(model='claude-3-5-sonnet', prompt='Hello')
+```
+
+**Note:** If you see experiments being created in `/Shared/mlflowlite`, it means the library couldn't detect your username. Set it manually:
+
+```python
+ml.set_experiment_name('/Users/your.email@company.com/mlflowlite')
 ```
 
 ## Custom Experiment Path
@@ -125,11 +133,33 @@ An experiment name must be an absolute path within the Databricks workspace
 **Solution:**
 This is now automatically handled! The library detects Databricks and uses proper paths.
 
-If you still see this error:
+### Experiments appearing in wrong location
+
+If you see experiments at `/Shared/mlflowlite` or `/Users/spark-xxx/mlflowlite`:
+
+**Solution - Set your username explicitly:**
 ```python
-# Manually set the experiment path
+import mlflowlite as ml
+
+# Get your username from notebook
+username = dbutils.notebook.entry_point.getDbutils().notebook().getContext().userName().get()
+ml.set_experiment_name(f'/Users/{username}/mlflowlite')
+
+# Or set it directly
 ml.set_experiment_name('/Users/your.email@company.com/mlflowlite')
+
+# Now all queries will use the correct path
+response = ml.query(model='claude-3-5-sonnet', prompt='Hello')
 ```
+
+### Error: Multiple experiment creation messages
+
+If you see logs like:
+```
+INFO mlflow.tracking.fluent: Experiment with name '/Users/xxx/mlflowlite' does not exist. Creating a new experiment.
+```
+
+This is normal on first run. The experiment is created once, then reused for all subsequent calls.
 
 ### Error: "No module named mlflowlite"
 
@@ -162,3 +192,37 @@ All mlflowlite features work in Databricks:
 
 Everything is logged to your Databricks MLflow workspace automatically!
 
+
+## Quick Fix for Username Detection
+
+If mlflowlite can't detect your username automatically, add this at the start of your notebook:
+
+```python
+# Install mlflowlite
+%pip install git+https://github.com/ahdbilal/mlflowlite.git
+dbutils.library.restartPython()
+
+# Get your actual Databricks username
+username = dbutils.notebook.entry_point.getDbutils().notebook().getContext().userName().get()
+print(f"Your username: {username}")
+
+# Import and configure
+import mlflowlite as ml
+ml.set_experiment_name(f'/Users/{username}/mlflowlite')
+
+# Set API key
+import os
+os.environ['ANTHROPIC_API_KEY'] = dbutils.secrets.get(scope='keys', key='anthropic')
+
+# Now use mlflowlite - experiments will appear in YOUR user folder
+response = ml.query(
+    model='claude-3-5-sonnet',
+    prompt='Hello from Databricks!'
+)
+
+print(f"Experiment path: /Users/{username}/mlflowlite")
+print(f"Response: {response.content}")
+print(f"Cost: ${response.cost:.4f}")
+```
+
+This ensures experiments are created in your personal workspace folder, not shared or cluster folders.
