@@ -178,16 +178,25 @@ Think step-by-step and explain your reasoning when using tools."""
         try:
             commit_msg = metadata.get('change', 'Updated prompt') if metadata else 'New prompt version'
             
-            registered_prompt = mlflow.register_prompt(
-                name=self.prompt_name,
-                template=full_template,
-                commit_message=commit_msg,
-                version_metadata=metadata or {},
-                tags={
-                    "agent": self.agent_name,
-                    "type": "agent_prompt"
-                }
-            )
+            # Register prompt with MLflow (parameters vary by version)
+            try:
+                # Try newer API with version_metadata
+                registered_prompt = mlflow.register_prompt(
+                    name=self.prompt_name,
+                    template=full_template,
+                    commit_message=commit_msg,
+                    version_metadata=metadata or {},
+                    tags={
+                        "agent": self.agent_name,
+                        "type": "agent_prompt"
+                    }
+                )
+            except TypeError:
+                # Fall back to basic API without version_metadata
+                registered_prompt = mlflow.register_prompt(
+                    name=self.prompt_name,
+                    template=full_template,
+                )
             
             self.current_version = registered_prompt.version
             print(f"✅ Registered prompt '{self.prompt_name}' version {self.current_version} in MLflow")
