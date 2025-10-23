@@ -290,18 +290,18 @@ def _execute_completion(
                 mlflow.set_experiment(experiment_name)
             except Exception as e:
                 # Handle deleted experiment case
-                if "already exists in deleted state" in str(e):
+                if "already exists in deleted state" in str(e) or "deleted experiment" in str(e):
                     try:
                         # Try to restore the experiment
                         exp = mlflow.get_experiment_by_name(experiment_name)
                         if exp and exp.lifecycle_stage == "deleted":
                             mlflow.tracking.MlflowClient().restore_experiment(exp.experiment_id)
                             mlflow.set_experiment(experiment_name)
-                except Exception:
-                    # If restore fails, use a timestamped name
-                    experiment_name = f"{experiment_name}_{int(time.time())}"
-                    mlflow.create_experiment(experiment_name)
-                    mlflow.set_experiment(experiment_name)
+                    except Exception:
+                        # If restore fails, use a timestamped name
+                        experiment_name = f"{experiment_name}_{int(time.time())}"
+                        mlflow.create_experiment(experiment_name)
+                        mlflow.set_experiment(experiment_name)
                 else:
                     # Try to create new experiment
                     try:
