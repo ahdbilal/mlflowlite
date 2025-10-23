@@ -261,7 +261,6 @@ def _completion_with_reliability(
     raise RuntimeError(f"All models failed after retries. Last error: {last_error}")
 
 
-@mlflow.trace(name="llm_completion", span_type="CHAT_MODEL")
 def _execute_completion(
     model: str,
     messages: List[Dict[str, str]],
@@ -280,6 +279,7 @@ def _execute_completion(
         raise TimeoutError(f"Request timed out after {timeout}s")
     
     start_time = time.time()
+    run_context = None
     
     # Setup experiment (only for local, Databricks uses autolog)
     if _mlflow_enabled:
@@ -310,6 +310,10 @@ def _execute_completion(
                     except Exception:
                         pass  # If all else fails, continue without experiment
         # else: Databricks - autolog handles experiment automatically
+        
+        # Start a run - traces will be associated with this run
+        run_context = mlflow.start_run(run_name=f"{model}_{int(start_time)}")
+        run_context.__enter__()
     
     # Set timeout (Unix-only, skip on Windows)
     if platform.system() != 'Windows' and timeout > 0:
@@ -384,13 +388,35 @@ def _execute_completion(
                 except Exception:
                     pass
         
-        # Get trace ID
+        # Get trace ID and run ID
         trace_id = "no_trace"
+        run_id = "no_run"
         if _mlflow_enabled:
             try:
                 active_trace = mlflow.last_active_trace()
                 if active_trace:
                     trace_id = active_trace.info.request_id
+            except Exception:
+                pass
+            
+            if run_context:
+                run_id = run_context.info.run_id
+        
+        # Log metrics and params to the run
+        if _mlflow_enabled and run_context:
+            try:
+                mlflow.log_param("model", model)
+                mlflow.log_param("temperature", temperature)
+                mlflow.log_param("message_count", len(messages))
+                mlflow.log_metric("latency_seconds", latency)
+                mlflow.log_metric("total_tokens", total_tokens)
+                mlflow.log_metric("prompt_tokens", prompt_tokens)
+                mlflow.log_metric("completion_tokens", completion_tokens)
+                mlflow.log_metric("cost_usd", cost)
+                
+                if scores:
+                    for metric, score in scores.items():
+                        mlflow.log_metric(f"score_{metric}", score)
             except Exception:
                 pass
         
@@ -400,7 +426,7 @@ def _execute_completion(
             usage=usage,
             latency=latency,
             cost=cost,
-            trace_id=trace_id,
+            trace_id=trace_id or run_id,  # Use run_id as fallback
             metadata={
                 "provider": provider.provider_name,
                 "finish_reason": llm_response.finish_reason,
@@ -414,6 +440,13 @@ def _execute_completion(
         # Cancel timeout
         if platform.system() != 'Windows' and timeout > 0:
             signal.alarm(0)
+        
+        # End the run
+        if _mlflow_enabled and run_context:
+            try:
+                run_context.__exit__(None, None, None)
+            except Exception:
+                pass
 
 
 def completion(
