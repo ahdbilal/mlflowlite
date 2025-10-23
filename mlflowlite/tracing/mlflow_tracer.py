@@ -128,9 +128,28 @@ class MLflowTracer:
         
         try:
             mlflow.set_experiment(exp_name)
-        except Exception:
-            mlflow.create_experiment(exp_name)
-            mlflow.set_experiment(exp_name)
+        except Exception as e:
+            # Handle deleted experiment case
+            if "already exists in deleted state" in str(e) or "deleted experiment" in str(e):
+                try:
+                    # Try to restore the experiment
+                    exp = mlflow.get_experiment_by_name(exp_name)
+                    if exp and exp.lifecycle_stage == "deleted":
+                        mlflow.tracking.MlflowClient().restore_experiment(exp.experiment_id)
+                        mlflow.set_experiment(exp_name)
+                except Exception:
+                    # If restore fails, use a timestamped name
+                    import time as time_module
+                    exp_name = f"{exp_name}_{int(time_module.time())}"
+                    mlflow.create_experiment(exp_name)
+                    mlflow.set_experiment(exp_name)
+            else:
+                # Try to create new experiment
+                try:
+                    mlflow.create_experiment(exp_name)
+                    mlflow.set_experiment(exp_name)
+                except Exception:
+                    pass  # Continue without experiment
         
         # Current trace state
         self.current_trace: Optional[AgentTrace] = None
