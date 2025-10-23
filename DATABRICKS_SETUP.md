@@ -1,263 +1,168 @@
-# Using mlflowlite in Databricks
+# mlflowlite in Databricks
 
-mlflowlite automatically detects Databricks environments and configures experiment paths correctly.
-
-## Automatic Detection
-
-The library automatically detects Databricks and uses proper experiment paths:
-
-```python
-import mlflowlite as ml
-
-# Automatically detects your Databricks username and uses:
-# - /Users/your.email@company.com/mlflowlite (if username detected)
-# - /Shared/mlflowlite (fallback if username not available)
-response = ml.query(model='claude-3-5-sonnet', prompt='Hello')
-```
-
-**Note:** If you see experiments being created in `/Shared/mlflowlite`, it means the library couldn't detect your username. Set it manually:
-
-```python
-ml.set_experiment_name('/Users/your.email@company.com/mlflowlite')
-```
-
-## Custom Experiment Path
-
-If you want to use a custom experiment name in Databricks:
-
-```python
-import mlflowlite as ml
-
-# Set your custom experiment path (must be absolute in Databricks)
-ml.set_experiment_name('/Users/your.email@company.com/my_custom_experiment')
-
-# Now all queries will use this experiment
-response = ml.query(model='claude-3-5-sonnet', prompt='Hello')
-```
-
-## Installation in Databricks
-
-### Method 1: Install from GitHub
-
-```python
-%pip install git+https://github.com/ahdbilal/mlflowlite.git
-```
-
-### Method 2: Install from local wheel
-
-1. Build the package:
-   ```bash
-   python setup.py bdist_wheel
-   ```
-
-2. Upload `dist/mlflowlite-*.whl` to Databricks
-
-3. Install:
-   ```python
-   %pip install /path/to/mlflowlite-*.whl
-   ```
-
-### Method 3: Editable install (for development)
-
-```python
-%pip install -e .
-```
-
-## Setting API Keys
-
-Use Databricks secrets for API keys:
-
-```python
-# Store secrets in Databricks
-# Settings → Secrets → Create Secret
-
-# In your notebook
-import os
-from databricks import secrets
-
-# Set API keys
-os.environ['ANTHROPIC_API_KEY'] = dbutils.secrets.get(scope='your_scope', key='anthropic_api_key')
-os.environ['OPENAI_API_KEY'] = dbutils.secrets.get(scope='your_scope', key='openai_api_key')
-
-# Now use mlflowlite
-import mlflowlite as ml
-response = ml.query(model='claude-3-5-sonnet', prompt='Hello')
-```
-
-## Viewing Experiments
-
-In Databricks, experiments are visible in:
-1. **Sidebar** → Experiments
-2. **Path**: `/Users/your.email@company.com/mlflowlite`
-3. All traces, metrics, and costs are logged automatically
-
-## Complete Example
+## Quick Setup
 
 ```python
 # Install
 %pip install git+https://github.com/ahdbilal/mlflowlite.git
-
-# Restart Python
 dbutils.library.restartPython()
 
-# Setup API key
+# Configure API key (using Databricks secrets - recommended)
 import os
-os.environ['ANTHROPIC_API_KEY'] = dbutils.secrets.get(scope='keys', key='anthropic')
+os.environ['ANTHROPIC_API_KEY'] = dbutils.secrets.get(scope='your_scope', key='anthropic_api_key')
 
-# Use mlflowlite
-import mlflowlite as ml
+# Or directly (not recommended for production)
+os.environ['ANTHROPIC_API_KEY'] = 'your-key-here'
 
-# Query (automatically uses /Users/your.email/mlflowlite)
-response = ml.query(
+# Use it!
+import mlflowlite as mla
+
+response = mla.query(
     model='claude-3-5-sonnet',
-    prompt='Explain machine learning in one sentence'
+    prompt='Explain quantum computing',
 )
 
 print(f"Response: {response.content}")
 print(f"Cost: ${response.cost:.4f}")
 print(f"Trace ID: {response.trace_id}")
+```
 
-# View in Databricks Experiments UI
+**That's it!** Databricks automatically manages experiments using autolog. No manual experiment setup needed.
+
+## How It Works
+
+mlflowlite detects Databricks environment and:
+- **Lets Databricks autolog handle experiment tracking**
+- No need to set experiment names or paths
+- Experiments appear automatically in your notebook's Experiment sidebar
+- Full input/output logged as artifacts
+
+## Viewing Traces
+
+### In Databricks UI
+
+Databricks automatically creates and manages your experiments using autolog.
+
+1. **Navigate to Experiments**
+   - Click on **Machine Learning** in the sidebar
+   - Click on **Experiments**
+
+2. **Find Your Experiment**
+   - Databricks will auto-create an experiment in your notebook folder
+   - Usually named after your notebook or in the default experiment location
+   - Look in the "Experiment" section in your notebook sidebar
+
+3. **View Runs**
+   - Click on the experiment
+   - You'll see all your API calls as runs
+   - Each run shows:
+     - **Metrics**: Cost, latency, tokens, scores
+     - **Parameters**: Model, temperature, settings
+     - **Artifacts**: `input.txt` (full prompt), `output.txt` (full response)
+
+### What Gets Logged
+
+Every `mla.query()` or `mla.completion()` call logs:
+
+**Metrics:**
+- `latency_seconds` - Request duration
+- `total_tokens`, `prompt_tokens`, `completion_tokens`
+- `cost_usd` - Estimated cost
+- `score_helpfulness`, `score_conciseness`, `score_speed`
+
+**Parameters:**
+- `model`, `temperature`, `message_count`, `timeout`
+- `response_preview` - First 200 characters
+
+**Artifacts:**
+- `input.txt` - Full prompt/messages
+- `output.txt` - Complete response
+
+## Complete Example
+
+```python
+# Setup
+%pip install git+https://github.com/ahdbilal/mlflowlite.git
+dbutils.library.restartPython()
+
+import os
+os.environ['ANTHROPIC_API_KEY'] = dbutils.secrets.get(scope='keys', key='anthropic')
+
+# Use it
+import mlflowlite as mla
+
+response = mla.query(
+    model='claude-3-5-sonnet',
+    prompt='Summarize the key points',
+    input='Your text here...'
+)
+
+print(f"✅ Response: {response.content}")
+print(f"💰 Cost: ${response.cost:.4f}")
+print(f"⏱️  Latency: {response.latency:.2f}s")
+print(f"🔍 Trace ID: {response.trace_id}")
+print(f"\n📊 View in Experiment sidebar →")
+```
+
+## Advanced: Custom Experiment Location
+
+By default, Databricks autolog manages experiments. But you can customize:
+
+```python
+# Set custom experiment location (optional)
+mla.set_experiment_name('/Users/your.email@company.com/my_custom_experiment')
+
+# Now all queries will log there
+response = mla.query(model='claude-3-5-sonnet', prompt='Hello')
+```
+
+For agents:
+```python
+from mlflowlite import Agent
+
+agent = Agent(
+    name="support_bot",
+    model="claude-3-5-sonnet",
+    experiment_name='/Users/your.email@company.com/my_agent_exp'  # optional
+)
 ```
 
 ## Troubleshooting
 
-### Error: "Got an invalid experiment name"
+### Where are my experiments?
 
-**Old error:**
-```
-RestException: INVALID_PARAMETER_VALUE: Got an invalid experiment name 'mlflowlite'. 
-An experiment name must be an absolute path within the Databricks workspace
-```
+**Check the notebook sidebar:**
+- Look for the "Experiment" section in your Databricks notebook
+- Click on it to see the experiment and all runs
+- Or go to Machine Learning → Experiments and look for experiments related to your notebook
 
-**Solution:**
-This is now automatically handled! The library detects Databricks and uses proper paths.
-
-### Experiments appearing in wrong location
-
-If you see experiments at `/Shared/mlflowlite` or `/Users/spark-xxx/mlflowlite`:
-
-**Solution - Set your username explicitly:**
-```python
-import mlflowlite as ml
-
-# Get your username from notebook
-username = dbutils.notebook.entry_point.getDbutils().notebook().getContext().userName().get()
-ml.set_experiment_name(f'/Users/{username}/mlflowlite')
-
-# Or set it directly
-ml.set_experiment_name('/Users/your.email@company.com/mlflowlite')
-
-# Now all queries will use the correct path
-response = ml.query(model='claude-3-5-sonnet', prompt='Hello')
-```
-
-### Error: Multiple experiment creation messages
-
-If you see logs like:
-```
-INFO mlflow.tracking.fluent: Experiment with name '/Users/xxx/mlflowlite' does not exist. Creating a new experiment.
-```
-
-This is normal on first run. The experiment is created once, then reused for all subsequent calls.
-
-### Error: "No module named mlflowlite"
-
-**Solution:**
-```python
-%pip install git+https://github.com/ahdbilal/mlflowlite.git
-dbutils.library.restartPython()
-```
-
-### Error: "API key not found"
-
-**Solution:**
-```python
-import os
-os.environ['ANTHROPIC_API_KEY'] = dbutils.secrets.get(scope='your_scope', key='your_key')
-# OR
-os.environ['ANTHROPIC_API_KEY'] = 'your-key-here'  # Not recommended for production
-```
-
-## Features in Databricks
-
-All mlflowlite features work in Databricks:
-
-✅ Automatic tracing  
-✅ Prompt versioning  
-✅ DSPy optimization  
-✅ Reliability (retry, timeout, fallbacks)  
-✅ Smart routing  
-✅ A/B testing  
-
-Everything is logged to your Databricks MLflow workspace automatically!
-
-
-## Quick Fix for Username Detection
-
-If mlflowlite can't detect your username automatically, add this at the start of your notebook:
+### Want to use a custom experiment location?
 
 ```python
-# Install mlflowlite
-%pip install git+https://github.com/ahdbilal/mlflowlite.git
-dbutils.library.restartPython()
-
-# Get your actual Databricks username
-username = dbutils.notebook.entry_point.getDbutils().notebook().getContext().userName().get()
-print(f"Your username: {username}")
-
-# Import and configure
-import mlflowlite as ml
-ml.set_experiment_name(f'/Users/{username}/mlflowlite')
-
-# Set API key
-import os
-os.environ['ANTHROPIC_API_KEY'] = dbutils.secrets.get(scope='keys', key='anthropic')
-
-# Now use mlflowlite - experiments will appear in YOUR user folder
-response = ml.query(
-    model='claude-3-5-sonnet',
-    prompt='Hello from Databricks!'
-)
-
-print(f"Experiment path: /Users/{username}/mlflowlite")
-print(f"Response: {response.content}")
-print(f"Cost: ${response.cost:.4f}")
+# Set custom experiment (optional)
+mla.set_experiment_name('/Users/your.email@company.com/my_custom_experiment')
 ```
 
-This ensures experiments are created in your personal workspace folder, not shared or cluster folders.
-
-## Using Agent Class in Databricks
-
-The `Agent` class also works seamlessly in Databricks:
-
+**For Agents:**
 ```python
 from mlflowlite import Agent
 
-# Get your username
-username = dbutils.notebook.entry_point.getDbutils().notebook().getContext().userName().get()
-
-# Create agent - experiments will be nested under your user folder
 agent = Agent(
     name="support_bot",
     model="claude-3-5-sonnet",
-    system_prompt="You are a helpful support assistant"
+    experiment_name='/Users/your.email@company.com/my_agent_experiment'
 )
-
-# The agent automatically creates experiments at:
-# /Users/your.email@company.com/mlflowlite/agent_support_bot
-
-result = agent.run("How do I reset my password?")
-print(result.response)
 ```
 
-**Experiment Structure in Databricks:**
-```
-/Users/your.email@company.com/
-└── mlflowlite/
-    ├── agent_support_bot/       (Agent traces)
-    ├── agent_classifier/         (Another agent)
-    └── (API query traces at root)
-```
+## Benefits of Databricks Autolog
 
-This keeps your experiments organized by agent while staying in your personal workspace.
+✅ **Zero configuration** - Just start using `mla.query()`  
+✅ **Automatic experiment management** - No paths or names to set  
+✅ **Notebook integration** - Experiments appear in sidebar  
+✅ **Full traceability** - Complete input/output in artifacts  
+✅ **Cost tracking** - Automatic cost estimation per query  
+✅ **Quality metrics** - Helpfulness, speed, conciseness scores
+
+---
+
+**Just install and use. Databricks handles the rest!** 🎉
