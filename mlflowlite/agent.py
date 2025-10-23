@@ -100,7 +100,12 @@ class Agent:
                 metadata={"source": "user_provided"}
             )
         
-        # Initialize tracing
+        # Initialize tracing - use main mlflowlite experiment if not specified
+        if experiment_name is None:
+            # Import here to avoid circular dependency
+            from mlflowlite.litellm_style_api import _get_experiment_name
+            experiment_name = _get_experiment_name()  # Use same experiment as queries
+        
         self.tracer = MLflowTracer(
             agent_name=name,
             experiment_name=experiment_name,
