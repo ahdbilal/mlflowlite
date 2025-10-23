@@ -226,3 +226,38 @@ print(f"Cost: ${response.cost:.4f}")
 ```
 
 This ensures experiments are created in your personal workspace folder, not shared or cluster folders.
+
+## Using Agent Class in Databricks
+
+The `Agent` class also works seamlessly in Databricks:
+
+```python
+from mlflowlite import Agent
+
+# Get your username
+username = dbutils.notebook.entry_point.getDbutils().notebook().getContext().userName().get()
+
+# Create agent - experiments will be nested under your user folder
+agent = Agent(
+    name="support_bot",
+    model="claude-3-5-sonnet",
+    system_prompt="You are a helpful support assistant"
+)
+
+# The agent automatically creates experiments at:
+# /Users/your.email@company.com/mlflowlite/agent_support_bot
+
+result = agent.run("How do I reset my password?")
+print(result.response)
+```
+
+**Experiment Structure in Databricks:**
+```
+/Users/your.email@company.com/
+└── mlflowlite/
+    ├── agent_support_bot/       (Agent traces)
+    ├── agent_classifier/         (Another agent)
+    └── (API query traces at root)
+```
+
+This keeps your experiments organized by agent while staying in your personal workspace.

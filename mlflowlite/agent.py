@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from mlflowlite.llm.base import LLMProvider, Message, MessageRole
 from mlflowlite.llm.providers import get_provider
+from mlflowlite.litellm_style_api import _get_experiment_name
 from mlflowlite.tools.base import Tool, ToolResult
 from mlflowlite.tools.builtin import get_builtin_tool
 from mlflowlite.tracing.mlflow_tracer import MLflowTracer, AgentTrace
