@@ -282,13 +282,16 @@ def _execute_completion(
     run_context = None
     
     if _mlflow_enabled:
-        try:
-            # Detect if running in Databricks
-            experiment_name = _get_experiment_name()
-            mlflow.set_experiment(experiment_name)
-        except Exception:
-            mlflow.create_experiment(experiment_name)
-            mlflow.set_experiment(experiment_name)
+        # Setup experiment (only for local, Databricks uses autolog)
+        experiment_name = _get_experiment_name()
+        
+        if experiment_name:  # Local environment
+            try:
+                mlflow.set_experiment(experiment_name)
+            except Exception:
+                mlflow.create_experiment(experiment_name)
+                mlflow.set_experiment(experiment_name)
+        # else: Databricks - autolog handles experiment automatically
         
         run_context = mlflow.start_run(run_name=f"{model}_{int(start_time)}")
         trace_id = run_context.__enter__().info.run_id
