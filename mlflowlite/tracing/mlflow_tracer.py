@@ -100,8 +100,32 @@ class MLflowTracer:
         if tracking_uri:
             mlflow.set_tracking_uri(tracking_uri)
         
-        # Set or create experiment
-        exp_name = experiment_name or f"agent_{agent_name}"
+        # Set or create experiment with Databricks auto-detection
+        if experiment_name is None:
+            # Auto-detect environment
+            import os
+            if 'DATABRICKS_RUNTIME_VERSION' in os.environ or os.path.exists('/databricks'):
+                # Databricks - try to get username
+                username = None
+                try:
+                    from pyspark.dbutils import DBUtils
+                    from pyspark.sql import SparkSession
+                    spark = SparkSession.builder.getOrCreate()
+                    dbutils = DBUtils(spark)
+                    username = dbutils.notebook.entry_point.getDbutils().notebook().getContext().userName().get()
+                except:
+                    pass
+                
+                if username:
+                    exp_name = f"/Users/{username}/mlflowlite/agent_{agent_name}"
+                else:
+                    exp_name = f"/Shared/mlflowlite/agent_{agent_name}"
+            else:
+                # Local
+                exp_name = f"agent_{agent_name}"
+        else:
+            exp_name = experiment_name
+        
         try:
             mlflow.set_experiment(exp_name)
         except Exception:
