@@ -59,9 +59,28 @@ class SimpleAPI:
         # Set default experiment
         try:
             mlflow.set_experiment("ai_gateway_queries")
-        except Exception:
-            mlflow.create_experiment("ai_gateway_queries")
-            mlflow.set_experiment("ai_gateway_queries")
+        except Exception as e:
+            # Handle deleted experiment case
+            if "already exists in deleted state" in str(e) or "deleted experiment" in str(e):
+                try:
+                    # Try to restore the experiment
+                    exp = mlflow.get_experiment_by_name("ai_gateway_queries")
+                    if exp and exp.lifecycle_stage == "deleted":
+                        mlflow.tracking.MlflowClient().restore_experiment(exp.experiment_id)
+                        mlflow.set_experiment("ai_gateway_queries")
+                except Exception:
+                    # If restore fails, use a timestamped name
+                    import time
+                    exp_name = f"ai_gateway_queries_{int(time.time())}"
+                    mlflow.create_experiment(exp_name)
+                    mlflow.set_experiment(exp_name)
+            else:
+                # Try to create new experiment
+                try:
+                    mlflow.create_experiment("ai_gateway_queries")
+                    mlflow.set_experiment("ai_gateway_queries")
+                except Exception:
+                    pass  # Continue without experiment
         
         # Cache for query results (for comparison)
         self.query_history: List[QueryResult] = []
