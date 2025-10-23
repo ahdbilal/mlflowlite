@@ -68,6 +68,53 @@ _provider_for_suggestions = None
 _default_timeout = 60.0  # seconds
 _default_max_retries = 3
 _default_fallback_models = None
+_experiment_name = None  # Custom experiment name
+
+
+def _get_experiment_name() -> str:
+    """
+    Get the appropriate experiment name for the current environment.
+    
+    Returns:
+        Experiment name (Databricks-compatible if needed)
+    """
+    global _experiment_name
+    
+    # If user set a custom name, use it
+    if _experiment_name:
+        return _experiment_name
+    
+    # Detect Databricks environment
+    try:
+        import os
+        # Check for Databricks-specific environment variables
+        if 'DATABRICKS_RUNTIME_VERSION' in os.environ or os.path.exists('/databricks'):
+            # Get username for Databricks path
+            username = os.environ.get('USER', 'user')
+            return f"/Users/{username}/mlflowlite"
+        else:
+            # Local or other environments
+            return "mlflowlite"
+    except:
+        return "mlflowlite"
+
+
+def set_experiment_name(name: str):
+    """
+    Set a custom MLflow experiment name.
+    
+    Args:
+        name: Experiment name (use absolute path for Databricks, e.g. '/Users/username/my-experiment')
+    
+    Example:
+        >>> # For Databricks
+        >>> ml.set_experiment_name('/Users/your.email@company.com/mlflowlite')
+        >>> 
+        >>> # For local
+        >>> ml.set_experiment_name('my_experiment')
+    """
+    global _experiment_name
+    _experiment_name = name
 
 
 def set_mlflow_tracking(enabled: bool = True):
@@ -205,10 +252,12 @@ def _execute_completion(
     
     if _mlflow_enabled:
         try:
-            mlflow.set_experiment("mlflowlite")
+            # Detect if running in Databricks
+            experiment_name = _get_experiment_name()
+            mlflow.set_experiment(experiment_name)
         except Exception:
-            mlflow.create_experiment("mlflowlite")
-            mlflow.set_experiment("mlflowlite")
+            mlflow.create_experiment(experiment_name)
+            mlflow.set_experiment(experiment_name)
         
         run_context = mlflow.start_run(run_name=f"{model}_{int(start_time)}")
         trace_id = run_context.__enter__().info.run_id
