@@ -110,7 +110,7 @@ By default, Databricks autolog manages experiments. But you can customize:
 
 ```python
 # Set custom experiment location (optional)
-mla.set_experiment_name('/Users/your.email@company.com/my_custom_experiment')
+mla.set_experiment_name('/Users/your.email@company.com/llm_workspace')
 
 # Now all queries will log there
 response = mla.query(model='claude-3-5-sonnet', prompt='Hello')
@@ -140,7 +140,7 @@ agent = Agent(
 
 ```python
 # Set custom experiment (optional)
-mla.set_experiment_name('/Users/your.email@company.com/my_custom_experiment')
+mla.set_experiment_name('/Users/your.email@company.com/llm_workspace')
 ```
 
 **For Agents:**
