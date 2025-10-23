@@ -337,40 +337,53 @@ def _execute_completion(
             for msg in messages
         ]
         
-        # Call LLM within a span
-        with mlflow.start_span(name=f"{model}_call", span_type="CHAT_MODEL") as span:
-            span.set_inputs({
-                "messages": messages,
-                "model": model,
-                "temperature": temperature,
-                "max_tokens": max_tokens
-            })
-            
-            llm_response = provider.complete(message_objects, tools=tools)
-            
-            # Calculate metrics
-            latency = time.time() - start_time
-            usage = llm_response.usage or {}
-            total_tokens = usage.get("total_tokens", 0)
-            prompt_tokens = usage.get("prompt_tokens", 0)
-            completion_tokens = usage.get("completion_tokens", 0)
-            cost = _estimate_cost(model, prompt_tokens, completion_tokens)
-            
-            span.set_outputs({
-                "content": llm_response.content,
-                "finish_reason": llm_response.finish_reason
-            })
-            
-            span.set_attributes({
-                "model": model,
-                "temperature": temperature,
-                "provider": provider.provider_name,
-                "latency_seconds": latency,
-                "total_tokens": total_tokens,
-                "prompt_tokens": prompt_tokens,
-                "completion_tokens": completion_tokens,
-                "cost_usd": cost
-            })
+        # Call LLM within a span - also set trace-level inputs/outputs
+        llm_response = provider.complete(message_objects, tools=tools)
+        
+        # Calculate metrics
+        latency = time.time() - start_time
+        usage = llm_response.usage or {}
+        total_tokens = usage.get("total_tokens", 0)
+        prompt_tokens = usage.get("prompt_tokens", 0)
+        completion_tokens = usage.get("completion_tokens", 0)
+        cost = _estimate_cost(model, prompt_tokens, completion_tokens)
+        
+        # Set trace-level inputs/outputs (this makes them visible in Traces UI)
+        if _mlflow_enabled:
+            try:
+                active_trace = mlflow.last_active_trace()
+                if active_trace:
+                    # Format messages for display
+                    formatted_messages = "\n\n".join([
+                        f"**{msg['role'].upper()}:**\n{msg['content']}" 
+                        for msg in messages
+                    ])
+                    
+                    active_trace.set_inputs({
+                        "messages": messages,
+                        "formatted_prompt": formatted_messages,
+                        "model": model,
+                        "temperature": temperature,
+                        "max_tokens": max_tokens
+                    })
+                    
+                    active_trace.set_outputs({
+                        "response": llm_response.content,
+                        "finish_reason": llm_response.finish_reason,
+                        "total_tokens": total_tokens,
+                        "cost_usd": cost
+                    })
+                    
+                    active_trace.set_attributes({
+                        "model": model,
+                        "provider": provider.provider_name,
+                        "latency_seconds": latency,
+                        "prompt_tokens": prompt_tokens,
+                        "completion_tokens": completion_tokens
+                    })
+            except Exception as e:
+                # If trace operations fail, continue anyway
+                print(f"Warning: Failed to set trace data: {e}")
         
         scores = None
         if _auto_evaluate:
@@ -380,10 +393,16 @@ def _execute_completion(
                 tokens=total_tokens,
             )
             
-            # Add scores as attributes if enabled
+            # Add scores as a proper evaluation span with inputs/outputs
             if _mlflow_enabled and scores:
                 try:
                     with mlflow.start_span(name="evaluation", span_type="UNKNOWN") as eval_span:
+                        eval_span.set_inputs({
+                            "response_text": llm_response.content[:200],
+                            "latency": latency,
+                            "tokens": total_tokens
+                        })
+                        eval_span.set_outputs(scores)
                         eval_span.set_attributes(scores)
                 except Exception:
                     pass
