@@ -1,16 +1,27 @@
-"""Prompt registry for versioning and managing agent prompts."""
+"""
+Prompt registry using MLflow's native Prompt Registry.
+
+This provides a wrapper around MLflow's prompt management features:
+- Register prompts with mlflow.register_prompt()
+- Load prompts with mlflow.load_prompt()
+- Version control with commit messages
+- View prompts in MLflow UI's Prompts tab
+
+See: https://mlflow.org/docs/2.21.3/prompts
+"""
 
 import json
-import os
+import time
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
+import mlflow
 
 
 @dataclass
 class PromptVersion:
-    """A versioned prompt."""
+    """A versioned prompt (for backwards compatibility)."""
     version: int
     system_prompt: str
     user_template: str
@@ -30,7 +41,16 @@ class PromptVersion:
 
 
 class PromptRegistry:
-    """Registry for managing prompt versions."""
+    """
+    Registry for managing prompt versions using MLflow's native Prompt Registry.
+    
+    This class wraps MLflow's prompt management to provide:
+    - Automatic registration in MLflow's Prompts tab
+    - Version control with commit messages
+    - Easy loading and formatting of prompts
+    
+    See: https://mlflow.org/docs/2.21.3/prompts
+    """
     
     def __init__(
         self,
@@ -41,11 +61,14 @@ class PromptRegistry:
         Initialize prompt registry.
         
         Args:
-            agent_name: Name of the agent
-            registry_path: Path to store registry files (defaults to ~/.mlflowlite/prompts)
+            agent_name: Name of the agent (used as prompt name prefix)
+            registry_path: Legacy parameter (kept for backwards compatibility)
         """
         self.agent_name = agent_name
+        self.prompt_name = f"agent_{agent_name}_prompt"
+        self.current_version = 0
         
+        # For backwards compatibility, keep local registry as fallback
         if registry_path:
             self.registry_path = Path(registry_path)
         else:
@@ -53,28 +76,37 @@ class PromptRegistry:
         
         self.registry_path.mkdir(parents=True, exist_ok=True)
         self.registry_file = self.registry_path / "registry.json"
-        
-        # Load or initialize registry
         self.versions: List[PromptVersion] = []
-        self._load_registry()
+        
+        # Try to load existing prompts from MLflow
+        try:
+            client = mlflow.MlflowClient()
+            mlflow_versions = client.search_prompt_versions(f"name='{self.prompt_name}'")
+            if mlflow_versions:
+                self.current_version = max([v.version for v in mlflow_versions])
+        except Exception:
+            # MLflow prompts not available, load from local file
+            self._load_registry()
         
         # Initialize with default prompt if empty
-        if not self.versions:
+        if self.current_version == 0 and not self.versions:
             self._initialize_default_prompt()
     
     def _load_registry(self):
-        """Load registry from disk."""
+        """Load registry from disk (legacy fallback)."""
         if self.registry_file.exists():
             try:
                 with open(self.registry_file, 'r') as f:
                     data = json.load(f)
                     self.versions = [PromptVersion.from_dict(v) for v in data.get("versions", [])]
+                    if self.versions:
+                        self.current_version = self.versions[-1].version
             except Exception as e:
                 print(f"Warning: Failed to load registry: {e}")
                 self.versions = []
     
     def _save_registry(self):
-        """Save registry to disk."""
+        """Save registry to disk (legacy fallback)."""
         try:
             data = {
                 "agent_name": self.agent_name,
@@ -87,9 +119,7 @@ class PromptRegistry:
     
     def _initialize_default_prompt(self):
         """Initialize with a default prompt."""
-        default_prompt = PromptVersion(
-            version=1,
-            system_prompt="""You are a helpful AI agent with access to tools.
+        default_system = """You are a helpful AI agent with access to tools.
 
 Your goal is to assist users by:
 1. Understanding their request
@@ -97,15 +127,14 @@ Your goal is to assist users by:
 3. Using available tools when needed
 4. Providing clear, accurate responses
 
-Think step-by-step and explain your reasoning when using tools.""",
+Think step-by-step and explain your reasoning when using tools."""
+        
+        self.add_version(
+            system_prompt=default_system,
             user_template="{query}",
             examples=[],
-            metadata={"source": "default", "auto_generated": True},
-            created_at=datetime.now().isoformat(),
+            metadata={"source": "default", "auto_generated": True}
         )
-        
-        self.versions.append(default_prompt)
-        self._save_registry()
     
     def add_version(
         self,
@@ -115,19 +144,60 @@ Think step-by-step and explain your reasoning when using tools.""",
         metadata: Optional[Dict[str, Any]] = None,
     ) -> PromptVersion:
         """
-        Add a new prompt version.
+        Add a new prompt version using MLflow's register_prompt().
+        
+        This registers the prompt in MLflow and makes it visible in the Prompts tab!
         
         Args:
             system_prompt: System prompt text
-            user_template: Template for user messages
-            examples: Few-shot examples
+            user_template: Template for user messages (can use {query} placeholder)
+            examples: Optional few-shot examples
             metadata: Additional metadata
         
         Returns:
             The new prompt version
         """
-        version_num = len(self.versions) + 1
+        version_num = self.current_version + 1
         
+        # Build the combined template for MLflow
+        template_parts = [f"System: {system_prompt}"]
+        
+        if examples:
+            template_parts.append("\nExamples:")
+            for ex in examples or []:
+                template_parts.append(f"User: {ex.get('input', '')}")
+                template_parts.append(f"Assistant: {ex.get('output', '')}")
+        
+        # Convert {query} to {{query}} for MLflow's double-brace format
+        mlflow_template = user_template.replace('{', '{{').replace('}', '}}')
+        template_parts.append(f"\nUser: {mlflow_template}")
+        
+        full_template = "\n".join(template_parts)
+        
+        # Try to register with MLflow
+        try:
+            commit_msg = metadata.get('change', 'Updated prompt') if metadata else 'New prompt version'
+            
+            registered_prompt = mlflow.register_prompt(
+                name=self.prompt_name,
+                template=full_template,
+                commit_message=commit_msg,
+                version_metadata=metadata or {},
+                tags={
+                    "agent": self.agent_name,
+                    "type": "agent_prompt"
+                }
+            )
+            
+            self.current_version = registered_prompt.version
+            print(f"✅ Registered prompt '{self.prompt_name}' version {self.current_version} in MLflow")
+            print(f"   View in MLflow UI: Prompts tab → {self.prompt_name}")
+            
+        except Exception as e:
+            print(f"Warning: Failed to register prompt with MLflow: {e}")
+            print("Using local storage as fallback...")
+        
+        # Create version object (for backwards compatibility and local storage)
         new_version = PromptVersion(
             version=version_num,
             system_prompt=system_prompt,
@@ -143,39 +213,92 @@ Think step-by-step and explain your reasoning when using tools.""",
         return new_version
     
     def get_version(self, version: int) -> Optional[PromptVersion]:
-        """Get a specific version."""
-        for v in self.versions:
-            if v.version == version:
-                return v
-        return None
+        """
+        Get a specific prompt version (tries MLflow first, then local).
+        
+        Args:
+            version: Version number to retrieve
+            
+        Returns:
+            PromptVersion object or None if not found
+        """
+        # Try MLflow first
+        try:
+            prompt = mlflow.load_prompt(f"prompts:/{self.prompt_name}/{version}")
+            
+            # Parse the template back into components
+            template_text = prompt.template
+            system_part = template_text.split("User:")[0].replace("System:", "").strip()
+            user_part = template_text.split("User:")[-1].strip() if "User:" in template_text else "{query}"
+            
+            return PromptVersion(
+                version=version,
+                system_prompt=system_part,
+                user_template=user_part.replace('{{', '{').replace('}}', '}'),  # Convert back to single braces
+                examples=[],
+                metadata={},
+                created_at=datetime.now().isoformat(),
+            )
+        except Exception:
+            # Fall back to local storage
+            for v in self.versions:
+                if v.version == version:
+                    return v
+            return None
     
     def get_latest(self) -> PromptVersion:
         """Get the latest prompt version."""
+        if self.current_version > 0:
+            latest = self.get_version(self.current_version)
+            if latest:
+                return latest
+        
+        # Fallback to local
         if not self.versions:
             self._initialize_default_prompt()
         return self.versions[-1]
     
     def list_versions(self) -> List[Dict[str, Any]]:
-        """List all versions with summary info."""
-        summaries = []
-        for v in self.versions:
-            summary = {
-                "version": v.version,
-                "created_at": v.created_at,
-                "system_prompt_preview": v.system_prompt[:100] + "..." if len(v.system_prompt) > 100 else v.system_prompt,
-                "num_examples": len(v.examples),
-                "metadata": v.metadata,
-            }
-            if v.performance_metrics:
-                summary["performance"] = v.performance_metrics
-            summaries.append(summary)
-        return summaries
+        """
+        List all versions (tries MLflow first, then local).
+        
+        Returns:
+            List of version info dictionaries
+        """
+        # Try MLflow first
+        try:
+            client = mlflow.MlflowClient()
+            mlflow_versions = client.search_prompt_versions(f"name='{self.prompt_name}'")
+            
+            return [
+                {
+                    'version': v.version,
+                    'created_at': datetime.now().isoformat(),
+                    'metadata': v.version_metadata or {},
+                    'commit_message': getattr(v, 'commit_message', ''),
+                }
+                for v in mlflow_versions
+            ]
+        except Exception:
+            # Fall back to local storage
+            return [
+                {
+                    "version": v.version,
+                    "created_at": v.created_at,
+                    "system_prompt_preview": v.system_prompt[:100] + "..." if len(v.system_prompt) > 100 else v.system_prompt,
+                    "num_examples": len(v.examples),
+                    "metadata": v.metadata,
+                }
+                for v in self.versions
+            ]
     
     def update_performance(self, version: int, metrics: Dict[str, float]):
         """Update performance metrics for a version."""
         prompt_version = self.get_version(version)
-        if prompt_version:
-            prompt_version.performance_metrics = metrics
+        if prompt_version and self.versions:
+            for v in self.versions:
+                if v.version == version:
+                    v.performance_metrics = metrics
             self._save_registry()
     
     def compare(self, v1: int, v2: int) -> Dict[str, Any]:
@@ -197,10 +320,6 @@ Think step-by-step and explain your reasoning when using tools.""",
             "examples_diff": {
                 "v1_count": len(version1.examples),
                 "v2_count": len(version2.examples),
-            },
-            "performance_diff": {
-                "v1": version1.performance_metrics or {},
-                "v2": version2.performance_metrics or {},
             },
         }
     
@@ -226,28 +345,3 @@ Think step-by-step and explain your reasoning when using tools.""",
                 "rollback_at": datetime.now().isoformat(),
             }
         )
-    
-    def export_version(self, version: int, output_path: str):
-        """Export a prompt version to a file."""
-        prompt_version = self.get_version(version)
-        if not prompt_version:
-            raise ValueError(f"Version {version} not found")
-        
-        with open(output_path, 'w') as f:
-            json.dump(prompt_version.to_dict(), f, indent=2)
-    
-    def import_version(self, input_path: str) -> PromptVersion:
-        """Import a prompt version from a file."""
-        with open(input_path, 'r') as f:
-            data = json.load(f)
-        
-        return self.add_version(
-            system_prompt=data["system_prompt"],
-            user_template=data["user_template"],
-            examples=data.get("examples", []),
-            metadata={
-                **data.get("metadata", {}),
-                "imported_at": datetime.now().isoformat(),
-            }
-        )
-
