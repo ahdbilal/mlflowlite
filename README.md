@@ -173,11 +173,19 @@ mlflow ui
 
 ## Examples
 
-- `MLflowlite_Demo.ipynb` - Interactive demo
+- **`MLflowlite_Demo.ipynb`** - Start here! Interactive demo with all features
 - `complete_demo.py` - Full Python demo
 - `examples/quick_start.py` - Minimal example
 - `examples/reliability_demo.py` - Retry, timeout, fallbacks
 - `examples/routing_demo.py` - Smart routing & A/B testing
+
+## Troubleshooting
+
+**Multiple experiments?** Update to latest version - everything now uses one `mlflowlite` experiment.
+
+**Traces not showing?** Check: Machine Learning → Tracing (or notebook sidebar in Databricks).
+
+**API errors?** Make sure your API key is set: `os.environ['ANTHROPIC_API_KEY'] = 'your-key'`
 
 ## Structure
 
