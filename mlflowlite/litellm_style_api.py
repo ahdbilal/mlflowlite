@@ -279,10 +279,9 @@ def _execute_completion(
     
     start_time = time.time()
     trace_id = None
-    run_context = None
     
+    # Setup experiment (only for local, Databricks uses autolog)
     if _mlflow_enabled:
-        # Setup experiment (only for local, Databricks uses autolog)
         experiment_name = _get_experiment_name()
         
         if experiment_name:  # Local environment
@@ -292,16 +291,10 @@ def _execute_completion(
                 mlflow.create_experiment(experiment_name)
                 mlflow.set_experiment(experiment_name)
         # else: Databricks - autolog handles experiment automatically
-        
-        run_context = mlflow.start_run(run_name=f"{model}_{int(start_time)}")
-        trace_id = run_context.__enter__().info.run_id
-        
-        mlflow.log_param("model", model)
-        mlflow.log_param("temperature", temperature)
-        mlflow.log_param("message_count", len(messages))
-        mlflow.log_param("timeout", timeout)
     
-    try:
+    # Use MLflow Tracing for proper trace visualization
+    @mlflow.trace(name=f"{model}_completion", span_type="CHAT_MODEL")
+    def _traced_completion():
         # Set timeout (Unix-only, skip on Windows)
         import platform
         if platform.system() != 'Windows' and timeout > 0:
@@ -325,16 +318,59 @@ def _execute_completion(
                 for msg in messages
             ]
             
-            if _mlflow_enabled:
-                with mlflow.start_span(name="llm_completion", span_type="LLM") as span:
-                    span.set_attribute("model", model)
-                    llm_response = provider.complete(message_objects, tools=tools)
-            else:
+            # Call LLM within a span
+            with mlflow.start_span(name="llm_call", span_type="CHAT_MODEL") as span:
+                span.set_inputs({
+                    "messages": messages,
+                    "model": model,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens
+                })
+                
                 llm_response = provider.complete(message_objects, tools=tools)
+                
+                span.set_outputs({
+                    "content": llm_response.content,
+                    "finish_reason": llm_response.finish_reason
+                })
+                
+                span.set_attributes({
+                    "model": model,
+                    "temperature": temperature,
+                    "provider": provider.provider_name
+                })
+                
+            return llm_response
+            
         finally:
             # Cancel timeout
             if platform.system() != 'Windows' and timeout > 0:
                 signal.alarm(0)
+    
+    try:
+        # Execute with tracing
+        if _mlflow_enabled:
+            llm_response = _traced_completion()
+            trace_id = mlflow.last_active_trace().request_id if mlflow.last_active_trace() else "no_trace"
+        else:
+            # Without tracing, just call directly
+            provider = get_provider(
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                api_key=api_key,
+                **kwargs
+            )
+            
+            message_objects = [
+                Message(
+                    role=MessageRole(msg["role"]),
+                    content=msg["content"]
+                )
+                for msg in messages
+            ]
+            llm_response = provider.complete(message_objects, tools=tools)
+            trace_id = "no_trace"
         
         latency = time.time() - start_time
         usage = llm_response.usage or {}
@@ -352,30 +388,19 @@ def _execute_completion(
                 tokens=total_tokens,
             )
         
-        if _mlflow_enabled:
-            mlflow.log_metric("latency_seconds", latency)
-            mlflow.log_metric("total_tokens", total_tokens)
-            mlflow.log_metric("cost_usd", cost)
-            mlflow.log_metric("prompt_tokens", prompt_tokens)
-            mlflow.log_metric("completion_tokens", completion_tokens)
-            
-            if scores:
-                for metric, score in scores.items():
-                    mlflow.log_metric(f"score_{metric}", score)
-            
-            # Log full payload as params (truncated if needed)
-            mlflow.log_param("response_preview", llm_response.content[:200])
-            
-            # Log full input/output as text for better visibility
+        # Log additional metrics to the trace
+        if _mlflow_enabled and mlflow.last_active_trace():
             try:
-                # Log input (combined messages)
-                input_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in messages])
-                mlflow.log_text(input_text[:5000], "input.txt")  # Limit to 5000 chars
-                
-                # Log output
-                mlflow.log_text(llm_response.content[:5000], "output.txt")
-            except Exception as e:
-                # If logging text fails, continue anyway
+                trace = mlflow.last_active_trace()
+                trace.set_attributes({
+                    "latency_seconds": latency,
+                    "total_tokens": total_tokens,
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "cost_usd": cost,
+                    **(scores or {})
+                })
+            except Exception:
                 pass
         
         response = Response(
@@ -384,7 +409,7 @@ def _execute_completion(
             usage=usage,
             latency=latency,
             cost=cost,
-            trace_id=trace_id or "no_trace",
+            trace_id=trace_id,
             metadata={
                 "provider": provider.provider_name,
                 "finish_reason": llm_response.finish_reason,
@@ -394,9 +419,8 @@ def _execute_completion(
         
         return response
         
-    finally:
-        if _mlflow_enabled and run_context:
-            run_context.__exit__(None, None, None)
+    except Exception as e:
+        raise e
 
 
 def completion(
