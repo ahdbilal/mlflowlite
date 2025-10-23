@@ -353,12 +353,27 @@ def _execute_completion(
             mlflow.log_metric("latency_seconds", latency)
             mlflow.log_metric("total_tokens", total_tokens)
             mlflow.log_metric("cost_usd", cost)
+            mlflow.log_metric("prompt_tokens", prompt_tokens)
+            mlflow.log_metric("completion_tokens", completion_tokens)
             
             if scores:
                 for metric, score in scores.items():
                     mlflow.log_metric(f"score_{metric}", score)
             
+            # Log full payload as params (truncated if needed)
             mlflow.log_param("response_preview", llm_response.content[:200])
+            
+            # Log full input/output as text for better visibility
+            try:
+                # Log input (combined messages)
+                input_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in messages])
+                mlflow.log_text(input_text[:5000], "input.txt")  # Limit to 5000 chars
+                
+                # Log output
+                mlflow.log_text(llm_response.content[:5000], "output.txt")
+            except Exception as e:
+                # If logging text fails, continue anyway
+                pass
         
         response = Response(
             content=llm_response.content,
