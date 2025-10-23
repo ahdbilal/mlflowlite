@@ -114,20 +114,20 @@ def _get_experiment_name() -> str:
             # Clean username if it has @ in it (email)
             if username and '@' in username:
                 # Use the email as-is for the path
-                return f"/Users/{username}/mlflowlite"
+                return f"/Users/{username}/llm_workspace"
             elif username:
-                return f"/Users/{username}/mlflowlite"
+                return f"/Users/{username}/llm_workspace"
             else:
-                return "/Shared/mlflowlite"
+                return "/Shared/llm_workspace"
         else:
             # Local or other environments
-            return "mlflowlite"
+            return "llm_workspace"
     except Exception as e:
         # If detection fails, use safe default for Databricks
         import os
         if 'DATABRICKS_RUNTIME_VERSION' in os.environ:
-            return "/Shared/mlflowlite"
-        return "mlflowlite"
+            return "/Shared/llm_workspace"
+        return "llm_workspace"
 
 
 def set_experiment_name(name: str):

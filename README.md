@@ -181,11 +181,13 @@ mlflow ui
 
 ## Troubleshooting
 
-**Multiple experiments?** Update to latest version - everything now uses one `mlflowlite` experiment.
+**Multiple experiments?** Update to latest version - everything now uses one `llm_workspace` experiment.
 
 **Traces not showing?** Check: Machine Learning → Tracing (or notebook sidebar in Databricks).
 
 **API errors?** Make sure your API key is set: `os.environ['ANTHROPIC_API_KEY'] = 'your-key'`
+
+**Custom experiment name?** Use `ml.set_experiment_name('your_experiment_name')`
 
 ## Structure
 
