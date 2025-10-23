@@ -261,6 +261,7 @@ def _completion_with_reliability(
     raise RuntimeError(f"All models failed after retries. Last error: {last_error}")
 
 
+@mlflow.trace(name="llm_completion", span_type="CHAT_MODEL")
 def _execute_completion(
     model: str,
     messages: List[Dict[str, str]],
@@ -273,12 +274,12 @@ def _execute_completion(
 ) -> Response:
     """Execute a single completion attempt with timeout."""
     import signal
+    import platform
     
     def timeout_handler(signum, frame):
         raise TimeoutError(f"Request timed out after {timeout}s")
     
     start_time = time.time()
-    trace_id = None
     
     # Setup experiment (only for local, Databricks uses autolog)
     if _mlflow_enabled:
@@ -292,93 +293,62 @@ def _execute_completion(
                 mlflow.set_experiment(experiment_name)
         # else: Databricks - autolog handles experiment automatically
     
-    # Use MLflow Tracing for proper trace visualization
-    @mlflow.trace(name=f"{model}_completion", span_type="CHAT_MODEL")
-    def _traced_completion():
-        # Set timeout (Unix-only, skip on Windows)
-        import platform
-        if platform.system() != 'Windows' and timeout > 0:
-            signal.signal(signal.SIGALRM, timeout_handler)
-            signal.alarm(int(timeout))
-        
-        try:
-            provider = get_provider(
-                model=model,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                api_key=api_key,
-                **kwargs
-            )
-            
-            message_objects = [
-                Message(
-                    role=MessageRole(msg["role"]),
-                    content=msg["content"]
-                )
-                for msg in messages
-            ]
-            
-            # Call LLM within a span
-            with mlflow.start_span(name="llm_call", span_type="CHAT_MODEL") as span:
-                span.set_inputs({
-                    "messages": messages,
-                    "model": model,
-                    "temperature": temperature,
-                    "max_tokens": max_tokens
-                })
-                
-                llm_response = provider.complete(message_objects, tools=tools)
-                
-                span.set_outputs({
-                    "content": llm_response.content,
-                    "finish_reason": llm_response.finish_reason
-                })
-                
-                span.set_attributes({
-                    "model": model,
-                    "temperature": temperature,
-                    "provider": provider.provider_name
-                })
-                
-            return llm_response
-            
-        finally:
-            # Cancel timeout
-            if platform.system() != 'Windows' and timeout > 0:
-                signal.alarm(0)
+    # Set timeout (Unix-only, skip on Windows)
+    if platform.system() != 'Windows' and timeout > 0:
+        signal.signal(signal.SIGALRM, timeout_handler)
+        signal.alarm(int(timeout))
     
     try:
-        # Execute with tracing
-        if _mlflow_enabled:
-            llm_response = _traced_completion()
-            trace_id = mlflow.last_active_trace().request_id if mlflow.last_active_trace() else "no_trace"
-        else:
-            # Without tracing, just call directly
-            provider = get_provider(
-                model=model,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                api_key=api_key,
-                **kwargs
+        provider = get_provider(
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            api_key=api_key,
+            **kwargs
+        )
+        
+        message_objects = [
+            Message(
+                role=MessageRole(msg["role"]),
+                content=msg["content"]
             )
+            for msg in messages
+        ]
+        
+        # Call LLM within a span
+        with mlflow.start_span(name=f"{model}_call", span_type="CHAT_MODEL") as span:
+            span.set_inputs({
+                "messages": messages,
+                "model": model,
+                "temperature": temperature,
+                "max_tokens": max_tokens
+            })
             
-            message_objects = [
-                Message(
-                    role=MessageRole(msg["role"]),
-                    content=msg["content"]
-                )
-                for msg in messages
-            ]
             llm_response = provider.complete(message_objects, tools=tools)
-            trace_id = "no_trace"
-        
-        latency = time.time() - start_time
-        usage = llm_response.usage or {}
-        total_tokens = usage.get("total_tokens", 0)
-        prompt_tokens = usage.get("prompt_tokens", 0)
-        completion_tokens = usage.get("completion_tokens", 0)
-        
-        cost = _estimate_cost(model, prompt_tokens, completion_tokens)
+            
+            # Calculate metrics
+            latency = time.time() - start_time
+            usage = llm_response.usage or {}
+            total_tokens = usage.get("total_tokens", 0)
+            prompt_tokens = usage.get("prompt_tokens", 0)
+            completion_tokens = usage.get("completion_tokens", 0)
+            cost = _estimate_cost(model, prompt_tokens, completion_tokens)
+            
+            span.set_outputs({
+                "content": llm_response.content,
+                "finish_reason": llm_response.finish_reason
+            })
+            
+            span.set_attributes({
+                "model": model,
+                "temperature": temperature,
+                "provider": provider.provider_name,
+                "latency_seconds": latency,
+                "total_tokens": total_tokens,
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "cost_usd": cost
+            })
         
         scores = None
         if _auto_evaluate:
@@ -387,19 +357,22 @@ def _execute_completion(
                 latency=latency,
                 tokens=total_tokens,
             )
+            
+            # Add scores as attributes if enabled
+            if _mlflow_enabled and scores:
+                try:
+                    with mlflow.start_span(name="evaluation", span_type="UNKNOWN") as eval_span:
+                        eval_span.set_attributes(scores)
+                except Exception:
+                    pass
         
-        # Log additional metrics to the trace
-        if _mlflow_enabled and mlflow.last_active_trace():
+        # Get trace ID
+        trace_id = "no_trace"
+        if _mlflow_enabled:
             try:
-                trace = mlflow.last_active_trace()
-                trace.set_attributes({
-                    "latency_seconds": latency,
-                    "total_tokens": total_tokens,
-                    "prompt_tokens": prompt_tokens,
-                    "completion_tokens": completion_tokens,
-                    "cost_usd": cost,
-                    **(scores or {})
-                })
+                active_trace = mlflow.last_active_trace()
+                if active_trace:
+                    trace_id = active_trace.info.request_id
             except Exception:
                 pass
         
@@ -419,8 +392,10 @@ def _execute_completion(
         
         return response
         
-    except Exception as e:
-        raise e
+    finally:
+        # Cancel timeout
+        if platform.system() != 'Windows' and timeout > 0:
+            signal.alarm(0)
 
 
 def completion(
