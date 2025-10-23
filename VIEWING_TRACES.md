@@ -1,113 +1,64 @@
-# Viewing Traces in Databricks
+# Viewing Traces
 
-Your traces ARE working! Here's where to find the payload:
+## In Databricks
 
-## Where to Look
+**mlflowlite uses Databricks autolog** - experiments are automatically managed for you!
 
-### Option 1: Experiments UI
-1. Go to **Experiments** in Databricks sidebar
-2. Navigate to `/Users/your.email@company.com/mlflowlite`
-3. Click on any run
-4. You'll see:
-   - **Parameters tab**: Model, temperature, message_count, response_preview
-   - **Metrics tab**: latency_seconds, total_tokens, cost_usd, scores
-   - **Artifacts tab**: `input.txt` and `output.txt` files ← **PAYLOAD HERE!**
+### Where to Find Your Traces
 
-### Option 2: Using MLflow UI
-```python
-# In your notebook
-print(f"View traces at: /Users/{username}/mlflowlite")
-print(f"Trace ID: {response.trace_id}")
+**Option 1: Notebook Sidebar (Easiest)**
+1. Look at the right sidebar in your Databricks notebook
+2. Find the **"Experiment"** section
+3. Click on the experiment link
+4. All your `mla.query()` and `mla.completion()` calls are logged there
+
+**Option 2: Experiments UI**
+1. Go to **Machine Learning** → **Experiments** in Databricks
+2. Find the experiment associated with your notebook
+3. Click to view all runs
+
+### What You'll See in Each Run
+
+**Metrics Tab:**
+- `latency_seconds` - How long the request took
+- `total_tokens` - Total tokens used
+- `prompt_tokens` - Input tokens
+- `completion_tokens` - Output tokens
+- `cost_usd` - Estimated cost
+- `score_helpfulness` - Quality score
+- `score_conciseness` - Brevity score
+- `score_speed` - Speed score
+
+**Parameters Tab:**
+- `model` - Which model was used
+- `temperature` - Temperature setting
+- `message_count` - Number of messages
+- `timeout` - Timeout configuration
+- `response_preview` - First 200 characters
+
+**Artifacts Tab:** ← **FULL PAYLOAD HERE!**
+- `input.txt` - Complete input (prompt + messages)
+- `output.txt` - Complete response
+
+## In Local Environment
+
+```bash
+# Start MLflow UI
+mlflow ui
+
+# Open browser
+open http://localhost:5000
 ```
 
-Then in Databricks:
-1. **Machine Learning** → **Experiments**
-2. Find your experiment
-3. Click on the run
-4. Check **Artifacts** for full input/output
+Then:
+1. Look for the `mlflowlite` experiment
+2. Click on any run
+3. Check Artifacts for `input.txt` and `output.txt`
 
-## What Gets Logged
-
-For each `mla.query()` or `mla.completion()` call:
-
-### Parameters (in Parameters tab)
-- `model`: Which model was used
-- `temperature`: Temperature setting
-- `message_count`: Number of messages
-- `response_preview`: First 200 characters of response
-- `timeout`: Timeout setting
-
-### Metrics (in Metrics tab)
-- `latency_seconds`: How long it took
-- `total_tokens`: Total tokens used
-- `prompt_tokens`: Input tokens
-- `completion_tokens`: Output tokens
-- `cost_usd`: Estimated cost
-- `score_helpfulness`: Quality score
-- `score_conciseness`: Brevity score  
-- `score_speed`: Speed score
-
-### Artifacts (in Artifacts tab) ← **FULL PAYLOAD!**
-- `input.txt`: Complete input (prompt + messages)
-- `output.txt`: Complete response
-
-## Example Code
+## Example: Viewing a Trace
 
 ```python
-# Make a query
-response = mla.query(
-    model='claude-3-5-sonnet',
-    prompt='Summarize this',
-    input='Your text here'
-)
-
-# Get trace info
-print(f"✅ Response: {response.content}")
-print(f"💰 Cost: ${response.cost:.4f}")
-print(f"🔍 Trace ID: {response.trace_id}")
-print(f"\n📊 View full trace in Experiments:")
-print(f"   Path: /Users/{username}/mlflowlite")
-print(f"   Look in 'Artifacts' tab for input.txt and output.txt")
-```
-
-## Troubleshooting
-
-### "I don't see Artifacts tab"
-**Solution:** Update to latest mlflowlite version:
-```python
-%pip install git+https://github.com/ahdbilal/mlflowlite.git --upgrade
-dbutils.library.restartPython()
-```
-
-### "Artifacts are empty"
-**Possible cause:** Databricks workspace permissions
-
-**Solution:** Ensure you have write access to your user folder:
-```python
-username = dbutils.notebook.entry_point.getDbutils().notebook().getContext().userName().get()
-mla.set_experiment_name(f'/Users/{username}/mlflowlite')
-```
-
-### "I see the trace but no details"
-**Solution:** Click on the specific run (not just the experiment). The payload is in:
-1. Click the run → **Artifacts** tab → `input.txt` and `output.txt`
-2. Or **Parameters** tab → `response_preview` (truncated)
-
-## Complete Example in Databricks
-
-```python
-# Setup
-%pip install git+https://github.com/ahdbilal/mlflowlite.git
-dbutils.library.restartPython()
-
-# Configure
-username = dbutils.notebook.entry_point.getDbutils().notebook().getContext().userName().get()
-
 import mlflowlite as mla
-mla.set_experiment_name(f'/Users/{username}/mlflowlite')
-
-import os
-os.environ['ANTHROPIC_API_KEY'] = dbutils.secrets.get(scope='keys', key='anthropic')
 
 # Make a query
 response = mla.query(
@@ -115,40 +66,45 @@ response = mla.query(
     prompt='Explain quantum computing in simple terms'
 )
 
-# Print results
-print("✅ Response:", response.content)
-print(f"\n📊 Metrics:")
-print(f"   Cost: ${response.cost:.4f}")
-print(f"   Tokens: {response.usage.get('total_tokens', 0)}")
-print(f"   Latency: {response.latency:.2f}s")
-
-print(f"\n🔍 View full trace:")
-print(f"   1. Go to Experiments in sidebar")
-print(f"   2. Open: /Users/{username}/mlflowlite")
-print(f"   3. Click the latest run")
-print(f"   4. Check 'Artifacts' tab for full input/output")
-print(f"   5. Trace ID: {response.trace_id}")
+# Print trace info
+print(f"✅ Response: {response.content[:100]}...")
+print(f"💰 Cost: ${response.cost:.4f}")
+print(f"⏱️  Latency: {response.latency:.2f}s")
+print(f"🔢 Tokens: {response.usage.get('total_tokens', 0)}")
+print(f"🔍 Trace ID: {response.trace_id}")
+print(f"\n📊 View full trace in the Experiment sidebar →")
 ```
 
-## What You'll See
+## Customizing Experiment Location (Optional)
 
-```
-Artifacts/
-├── input.txt           ← Full prompt and input
-└── output.txt          ← Complete response
+By default, Databricks autolog manages experiments. But you can customize:
 
-Parameters/
-├── model               ← claude-3-5-sonnet
-├── temperature         ← 0.7
-├── message_count       ← 1
-└── response_preview    ← First 200 chars
+```python
+# Set custom experiment location
+mla.set_experiment_name('/Users/your.email@company.com/my_custom_exp')
 
-Metrics/
-├── latency_seconds     ← 1.23
-├── total_tokens        ← 150
-├── cost_usd            ← 0.0045
-├── score_helpfulness   ← 0.9
-└── score_speed         ← 0.95
+# Now all queries will log there
+response = mla.query(model='claude-3-5-sonnet', prompt='Hello')
 ```
 
-All the payload is there! Just look in the **Artifacts** tab. 🎉
+For agents:
+```python
+from mlflowlite import Agent
+
+agent = Agent(
+    name="support_bot",
+    model="claude-3-5-sonnet",
+    experiment_name='/Users/your.email@company.com/my_agent_exp'  # optional
+)
+```
+
+## Pro Tips
+
+1. **Check the sidebar first** - In Databricks, the experiment link is right there in your notebook
+2. **Click on individual runs** - The payload is in the Artifacts tab of each run, not the experiment overview
+3. **Use trace_id** - Every response has a `trace_id` for exact lookup
+4. **Filter by date** - In the Experiments UI, you can filter runs by date, model, cost, etc.
+
+---
+
+**Bottom line:** Just start using `mla.query()` - Databricks handles the rest automatically! 🎉
