@@ -417,6 +417,14 @@ def _execute_completion(
                 if scores:
                     for metric, score in scores.items():
                         mlflow.log_metric(f"score_{metric}", score)
+                
+                # Log the prompt and response for visibility
+                try:
+                    input_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in messages])
+                    mlflow.log_text(input_text[:2000], "prompt.txt")
+                    mlflow.log_text(llm_response.content[:2000], "response.txt")
+                except Exception:
+                    pass
             except Exception:
                 pass
         
