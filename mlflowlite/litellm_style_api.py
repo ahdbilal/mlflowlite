@@ -297,12 +297,11 @@ def _execute_completion(
                         if exp and exp.lifecycle_stage == "deleted":
                             mlflow.tracking.MlflowClient().restore_experiment(exp.experiment_id)
                             mlflow.set_experiment(experiment_name)
-                    except Exception:
-                        # If restore fails, use a timestamped name
-                        import time
-                        experiment_name = f"{experiment_name}_{int(time.time())}"
-                        mlflow.create_experiment(experiment_name)
-                        mlflow.set_experiment(experiment_name)
+                except Exception:
+                    # If restore fails, use a timestamped name
+                    experiment_name = f"{experiment_name}_{int(time.time())}"
+                    mlflow.create_experiment(experiment_name)
+                    mlflow.set_experiment(experiment_name)
                 else:
                     # Try to create new experiment
                     try:

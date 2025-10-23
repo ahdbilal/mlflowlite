@@ -70,7 +70,6 @@ class SimpleAPI:
                         mlflow.set_experiment("ai_gateway_queries")
                 except Exception:
                     # If restore fails, use a timestamped name
-                    import time
                     exp_name = f"ai_gateway_queries_{int(time.time())}"
                     mlflow.create_experiment(exp_name)
                     mlflow.set_experiment(exp_name)
