@@ -126,35 +126,28 @@ class MLflowTracer:
         else:
             exp_name = experiment_name
         
-        try:
-            mlflow.set_experiment(exp_name)
-        except Exception as e:
-            # Handle deleted experiment case
-            if "already exists in deleted state" in str(e) or "deleted experiment" in str(e):
-                try:
-                    # Try to restore the experiment
-                    exp = mlflow.get_experiment_by_name(exp_name)
-                    if exp and exp.lifecycle_stage == "deleted":
-                        mlflow.tracking.MlflowClient().restore_experiment(exp.experiment_id)
+        # Set experiment (will be created if it doesn't exist by the main API)
+        if exp_name:
+            try:
+                mlflow.set_experiment(exp_name)
+            except Exception as e:
+                # Handle deleted experiment case
+                if "already exists in deleted state" in str(e) or "deleted experiment" in str(e):
+                    try:
+                        # Try to restore the experiment
+                        exp = mlflow.get_experiment_by_name(exp_name)
+                        if exp and exp.lifecycle_stage == "deleted":
+                            mlflow.tracking.MlflowClient().restore_experiment(exp.experiment_id)
+                            mlflow.set_experiment(exp_name)
+                    except Exception:
+                        pass  # Let the main API handle it
+                else:
+                    # Try to create new experiment
+                    try:
+                        mlflow.create_experiment(exp_name)
                         mlflow.set_experiment(exp_name)
-                except Exception:
-                    # If restore fails, use a timestamped name
-                    import time as time_module
-                    exp_name = f"{exp_name}_{int(time_module.time())}"
-                    mlflow.create_experiment(exp_name)
-                    mlflow.set_experiment(exp_name)
-            else:
-                # Try to create new experiment
-                try:
-                    mlflow.create_experiment(exp_name)
-                    mlflow.set_experiment(exp_name)
-                except Exception:
-                    pass  # Continue without experiment
-        
-        # Current trace state
-        self.current_trace: Optional[AgentTrace] = None
-        self.active_run_id: Optional[str] = None
-        self.active_span_stack: List[str] = []
+                    except Exception:
+                        pass  # Continue without experiment
     
     def start_trace(self, input_query: str, metadata: Optional[Dict[str, Any]] = None) -> str:
         """Start a new trace."""
