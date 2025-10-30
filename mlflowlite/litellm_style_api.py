@@ -652,41 +652,33 @@ def query(
 def suggest_improvement(
     response: Response,
     context: Optional[str] = None,
-    use_llm: bool = None,
+    use_llm: bool = True,
 ) -> Dict[str, Any]:
     """
     Get improvement suggestions for a response.
     
-    By default uses fast heuristic rules.
-    For smarter suggestions, either:
-      1. Call set_suggestion_provider() first, OR
-      2. Pass use_llm=True
+    By default uses LLM-powered DSPy-style analysis.
     
     Args:
         response: Response object to analyze
         context: Optional context about the goal
-        use_llm: Force LLM-powered suggestions (slower, smarter)
+        use_llm: Use LLM-powered suggestions (default: True)
     
     Returns:
         Dictionary with suggestions
     
     Example:
-        >>> # Fast heuristic suggestions (default)
+        >>> # LLM-powered suggestions (default - DSPy style)
         >>> suggestions = mla.suggest_improvement(response)
         
-        >>> # Smart LLM-powered suggestions
+        >>> # Use specific model for suggestions
         >>> mla.set_suggestion_provider("claude-3-5-sonnet")
         >>> suggestions = mla.suggest_improvement(response)
-        
-        >>> # Or one-time LLM suggestion
-        >>> suggestions = mla.suggest_improvement(response, use_llm=True)
     """
     global _provider_for_suggestions
     
-    # Determine if we should use LLM
-    should_use_llm = use_llm or (_provider_for_suggestions is not None)
-    
-    if should_use_llm:
+    # Use LLM by default
+    if use_llm:
         return _llm_suggest_improvement(response, context)
     else:
         return _heuristic_suggest_improvement(response)
@@ -790,15 +782,17 @@ Be specific and practical. Format as a numbered list."""
 def print_suggestions(
     response: Response,
     context: Optional[str] = None,
-    use_llm: bool = None,
+    use_llm: bool = True,
 ):
     """
     Pretty print improvement suggestions.
     
+    Uses LLM-powered DSPy-style analysis by default.
+    
     Args:
         response: Response object
         context: Optional context
-        use_llm: Whether to use LLM-powered suggestions
+        use_llm: Use LLM-powered suggestions (default: True)
     """
     suggestions = suggest_improvement(response, context, use_llm)
     
