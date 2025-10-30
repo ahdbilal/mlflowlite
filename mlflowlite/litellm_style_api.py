@@ -414,9 +414,10 @@ def _execute_completion(
         run_id = "no_run"
         if _mlflow_enabled:
             try:
-                active_trace = mlflow.last_active_trace()
-                if active_trace:
-                    trace_id = active_trace.info.request_id
+                if hasattr(mlflow, 'last_active_trace'):
+                    active_trace = mlflow.last_active_trace()
+                    if active_trace:
+                        trace_id = active_trace.info.request_id
             except Exception:
                 pass
             
