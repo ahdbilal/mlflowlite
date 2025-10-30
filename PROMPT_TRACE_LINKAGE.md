@@ -165,13 +165,23 @@ agent.prompt_registry.add_version(
 
 ### What Gets Logged
 
+#### MLflow Run Tags (for "Linked prompts" UI):
+```python
+{
+    "mlflow.promptName": "support_bot_prompt",           # 👈 Prompt name
+    "mlflow.promptVersion": "2",                         # 👈 Version number
+    "mlflow.promptSource": "prompts:/support_bot_prompt/2"  # 👈 Full URI
+}
+```
+These special `mlflow.*` tags tell the MLflow UI to show the prompt in the **"Linked prompts"** tab!
+
 #### MLflow Run Parameters:
 ```python
 {
     "model": "claude-3-5-sonnet",
     "temperature": 0.7,
     "message_count": 2,
-    "prompt_name": "support_bot",           # 👈 Link to Prompt Registry
+    "prompt_name": "support_bot",           # 👈 User-friendly name
     "prompt_version": 2,                    # 👈 Specific version
     "prompt_registry_name": "support_bot_prompt"  # 👈 Full registry name
 }
@@ -187,7 +197,9 @@ agent.prompt_registry.add_version(
     "completion_tokens": 60,
     "prompt_name": "support_bot",           # 👈 Filterable!
     "prompt_version": 2,                    # 👈 Groupable!
-    "prompt_registry_name": "support_bot_prompt"
+    "prompt_registry_name": "support_bot_prompt",
+    "mlflow.promptName": "support_bot_prompt",  # 👈 MLflow UI linkage
+    "mlflow.promptVersion": "2"                  # 👈 MLflow UI linkage
 }
 ```
 
