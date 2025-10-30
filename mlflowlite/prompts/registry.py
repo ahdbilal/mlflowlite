@@ -66,8 +66,16 @@ class PromptRegistry:
         """
         self.agent_name = agent_name
         # Sanitize prompt name for Databricks/MLflow (only alphanumeric and underscores)
+        # Remove all invalid characters and ensure it starts with a letter
         sanitized_name = ''.join(c if c.isalnum() or c == '_' else '_' for c in agent_name)
-        self.prompt_name = f"agent_{sanitized_name}_prompt"
+        # Remove consecutive underscores and strip trailing underscores
+        sanitized_name = '_'.join(filter(None, sanitized_name.split('_')))
+        # Ensure it starts with a letter (prepend 'agent' if it starts with number/underscore)
+        if not sanitized_name or not sanitized_name[0].isalpha():
+            sanitized_name = f"agent_{sanitized_name}"
+        # Limit length to 64 characters (Databricks limit)
+        sanitized_name = sanitized_name[:50]  # Leave room for '_prompt'
+        self.prompt_name = f"{sanitized_name}_prompt"
         self.current_version = 0
         
         # For backwards compatibility, keep local registry as fallback
@@ -183,13 +191,16 @@ Think step-by-step and explain your reasoning when using tools."""
             # Register prompt with MLflow (parameters vary by version)
             try:
                 # Try newer API with version_metadata
+                # Sanitize metadata keys to ensure they're valid
+                safe_metadata = {k.replace('-', '_').replace('.', '_'): v 
+                               for k, v in (metadata or {}).items()}
                 registered_prompt = mlflow.register_prompt(
                     name=self.prompt_name,
                     template=full_template,
                     commit_message=commit_msg,
-                    version_metadata=metadata or {},
+                    version_metadata=safe_metadata,
                     tags={
-                        "agent": self.agent_name,
+                        "agent": self.agent_name[:50],  # Limit tag length
                         "type": "agent_prompt"
                     }
                 )
