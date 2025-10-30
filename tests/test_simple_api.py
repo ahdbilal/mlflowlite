@@ -191,3 +191,4 @@ def test_query_result_str():
     
     assert str(result) == "Test response"
 
+

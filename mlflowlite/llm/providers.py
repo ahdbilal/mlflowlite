@@ -167,7 +167,7 @@ def get_provider(
             normalized_model = model
         # Map common shortcuts to full model names
         if "claude-3-5-sonnet" in model_lower and "20" not in model:
-            normalized_model = "claude-3-5-sonnet-20241022"
+            normalized_model = "claude-3-5-sonnet-20240620"  # Latest stable version
         elif "claude-3-opus" in model_lower and "20" not in model:
             normalized_model = "claude-3-opus-20240229"
         elif "claude-3-sonnet" in model_lower and "20" not in model:
