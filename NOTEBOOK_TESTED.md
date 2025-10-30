@@ -6,10 +6,11 @@ All key notebook cells were tested to ensure the unified `Agent` interface works
 
 ### ✅ Cell 2: Setup
 ```python
-from mlflowlite import Agent
+from mlflowlite import Agent, set_suggestion_provider, print_suggestions
 ```
 - **Status**: ✅ Works perfectly
-- **Result**: One simple import, just like LiteLLM
+- **Result**: Simple imports for all needed functions
+- **Includes**: Agent class + DSPy optimization functions
 
 ### ✅ Cell 6: Simple Usage (NEW!)
 ```python
@@ -50,6 +51,11 @@ result = agent.run("Analyze this ticket...")
 
 4. **Fixed `chat()` method**
    - Same graceful handling of optional prompt registry
+
+5. **Fixed imports in notebook**
+   - Added `set_suggestion_provider` and `print_suggestions` to imports
+   - Fixes `NameError` in DSPy optimization cells
+   - All functions now accessible from one import statement
 
 ## Test Results
 
