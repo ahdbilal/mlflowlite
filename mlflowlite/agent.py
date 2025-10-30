@@ -260,11 +260,25 @@ class Agent:
         else:
             raise ValueError("Provide either prompt=... for simple queries, or variables (e.g., ticket=...) for template prompts")
         
+        # Get prompt metadata for linking trace to prompt
+        prompt_metadata = {}
+        if self.prompt_registry:
+            try:
+                current_prompt = self.prompt_registry.get_latest()
+                prompt_metadata = {
+                    "prompt_name": self.prompt_name,
+                    "prompt_version": current_prompt.version,
+                    "prompt_registry_name": self.prompt_registry.prompt_name,
+                }
+            except:
+                pass
+        
         return completion(
             model=self.model,
             messages=messages,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
+            **prompt_metadata  # Pass prompt info to trace
         )
     
     def run(

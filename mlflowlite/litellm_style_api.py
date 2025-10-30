@@ -308,6 +308,12 @@ def _execute_completion(
     start_time = time.time()
     run_context = None
     
+    # Extract prompt metadata (don't pass to LLM provider)
+    prompt_metadata = {}
+    for key in ["prompt_name", "prompt_version", "prompt_registry_name"]:
+        if key in kwargs:
+            prompt_metadata[key] = kwargs.pop(key)  # Remove from kwargs
+    
     # Setup experiment (only for local, Databricks uses autolog)
     if _mlflow_enabled:
         experiment_name = _get_experiment_name()
@@ -403,13 +409,23 @@ def _execute_completion(
                             "cost_usd": cost
                         })
                         
-                        active_trace.set_attributes({
+                        trace_attrs = {
                             "model": model,
                             "provider": provider.provider_name,
                             "latency_seconds": latency,
                             "prompt_tokens": prompt_tokens,
                             "completion_tokens": completion_tokens
-                        })
+                        }
+                        
+                        # 🔗 Add prompt linkage to trace attributes
+                        if "prompt_name" in prompt_metadata:
+                            trace_attrs["prompt_name"] = prompt_metadata["prompt_name"]
+                        if "prompt_version" in prompt_metadata:
+                            trace_attrs["prompt_version"] = prompt_metadata["prompt_version"]
+                        if "prompt_registry_name" in prompt_metadata:
+                            trace_attrs["prompt_registry_name"] = prompt_metadata["prompt_registry_name"]
+                        
+                        active_trace.set_attributes(trace_attrs)
             except Exception as e:
                 # If trace operations fail, continue anyway (older MLflow versions)
                 pass
@@ -457,6 +473,15 @@ def _execute_completion(
                 mlflow.log_param("model", model)
                 mlflow.log_param("temperature", temperature)
                 mlflow.log_param("message_count", len(messages))
+                
+                # 🔗 Link trace to prompt (if using Agent with prompt_name)
+                if "prompt_name" in prompt_metadata:
+                    mlflow.log_param("prompt_name", prompt_metadata["prompt_name"])
+                if "prompt_version" in prompt_metadata:
+                    mlflow.log_param("prompt_version", prompt_metadata["prompt_version"])
+                if "prompt_registry_name" in prompt_metadata:
+                    mlflow.log_param("prompt_registry_name", prompt_metadata["prompt_registry_name"])
+                
                 mlflow.log_metric("latency_seconds", latency)
                 mlflow.log_metric("total_tokens", total_tokens)
                 mlflow.log_metric("prompt_tokens", prompt_tokens)
