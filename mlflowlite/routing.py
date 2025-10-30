@@ -26,16 +26,16 @@ class SmartRouter:
     Smart routing: Automatically selects the best model based on query complexity.
     
     Rules (Anthropic models only):
-    - Simple queries → Fast, cheap models (claude-instant-1.2, claude-3-haiku-20240307)
+    - Simple queries → Fast, cheap models (claude-3-haiku-20240307, claude-3-5-haiku-20241022)
     - Medium queries → Balanced models (claude-3-5-sonnet-20240620)
-    - Complex queries → High-quality models (claude-3-opus-20240229)
+    - Complex queries → High-quality models (claude-3-opus-20240229, claude-3-7-sonnet-20250219)
     """
     
     # Model tiers by capability and cost (Anthropic only)
     TIERS = {
-        'fast': ['claude-instant-1.2', 'claude-3-haiku-20240307'],
+        'fast': ['claude-3-haiku-20240307', 'claude-3-5-haiku-20241022'],
         'balanced': ['claude-3-5-sonnet-20240620'],
-        'quality': ['claude-3-opus-20240229']
+        'quality': ['claude-3-opus-20240229', 'claude-3-7-sonnet-20250219']
     }
     
     def __init__(self, default_tier: str = 'balanced'):
