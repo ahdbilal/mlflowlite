@@ -94,15 +94,22 @@ class PromptRegistry:
         
         self.current_version = 0
         
-        # For backwards compatibility, keep local registry as fallback
-        if registry_path:
-            self.registry_path = Path(registry_path)
+        # Set up local storage only if NOT on Databricks UC
+        if not (self.is_databricks and self.uc_schema):
+            # Local mode: use file-based fallback
+            if registry_path:
+                self.registry_path = Path(registry_path)
+            else:
+                self.registry_path = Path.home() / ".mlflowlite" / "prompts" / agent_name
+            
+            self.registry_path.mkdir(parents=True, exist_ok=True)
+            self.registry_file = self.registry_path / "registry.json"
+            self.versions: List[PromptVersion] = []
         else:
-            self.registry_path = Path.home() / ".mlflowlite" / "prompts" / agent_name
-        
-        self.registry_path.mkdir(parents=True, exist_ok=True)
-        self.registry_file = self.registry_path / "registry.json"
-        self.versions: List[PromptVersion] = []
+            # Databricks UC mode: no local storage
+            self.registry_path = None
+            self.registry_file = None
+            self.versions = []
         
         # Try to load existing prompts from MLflow
         try:
@@ -111,11 +118,13 @@ class PromptRegistry:
             if mlflow_versions:
                 self.current_version = max([v.version for v in mlflow_versions])
         except Exception:
-            # MLflow prompts not available, load from local file
-            self._load_registry()
+            # MLflow prompts not available
+            if not (self.is_databricks and self.uc_schema):
+                # Local mode: load from local file as fallback
+                self._load_registry()
         
-        # Initialize with default prompt if empty
-        if self.current_version == 0 and not self.versions:
+        # Initialize with default prompt if empty (only in local mode)
+        if self.current_version == 0 and not self.versions and not (self.is_databricks and self.uc_schema):
             self._initialize_default_prompt()
     
     def _is_databricks(self) -> bool:
@@ -181,7 +190,11 @@ class PromptRegistry:
                 self.versions = []
     
     def _save_registry(self):
-        """Save registry to disk (legacy fallback)."""
+        """Save registry to disk (legacy fallback - skipped in Databricks UC mode)."""
+        # Skip local storage when using Databricks Unity Catalog
+        if self.is_databricks and self.uc_schema:
+            return
+        
         try:
             data = {
                 "agent_name": self.agent_name,
@@ -351,7 +364,11 @@ Think step-by-step and explain your reasoning when using tools."""
                 created_at=datetime.now().isoformat(),
             )
         except Exception:
-            # Fall back to local storage
+            # Databricks UC mode: no local fallback
+            if self.is_databricks and self.uc_schema:
+                return None
+            
+            # Local mode: fall back to local storage
             for v in self.versions:
                 if v.version == version:
                     return v
@@ -364,7 +381,14 @@ Think step-by-step and explain your reasoning when using tools."""
             if latest:
                 return latest
         
-        # Fallback to local
+        # Databricks UC mode: no local fallback
+        if self.is_databricks and self.uc_schema:
+            raise ValueError(
+                f"No prompt versions found in MLflow for '{self.prompt_name}'. "
+                f"Please register a prompt first using add_version()."
+            )
+        
+        # Local mode: fallback to local storage
         if not self.versions:
             self._initialize_default_prompt()
         return self.versions[-1]
@@ -391,7 +415,11 @@ Think step-by-step and explain your reasoning when using tools."""
                 for v in mlflow_versions
             ]
         except Exception:
-            # Fall back to local storage
+            # Databricks UC mode: no local fallback
+            if self.is_databricks and self.uc_schema:
+                return []  # No versions found in MLflow
+            
+            # Local mode: fall back to local storage
             return [
                 {
                     "version": v.version,
