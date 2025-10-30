@@ -351,39 +351,41 @@ def _execute_completion(
         # Set trace-level inputs/outputs (this makes them visible in Traces UI)
         if _mlflow_enabled:
             try:
-                active_trace = mlflow.last_active_trace()
-                if active_trace:
-                    # Format messages for display
-                    formatted_messages = "\n\n".join([
-                        f"**{msg['role'].upper()}:**\n{msg['content']}" 
-                        for msg in messages
-                    ])
-                    
-                    active_trace.set_inputs({
-                        "messages": messages,
-                        "formatted_prompt": formatted_messages,
-                        "model": model,
-                        "temperature": temperature,
-                        "max_tokens": max_tokens
-                    })
-                    
-                    active_trace.set_outputs({
-                        "response": llm_response.content,
-                        "finish_reason": llm_response.finish_reason,
-                        "total_tokens": total_tokens,
-                        "cost_usd": cost
-                    })
-                    
-                    active_trace.set_attributes({
-                        "model": model,
-                        "provider": provider.provider_name,
-                        "latency_seconds": latency,
-                        "prompt_tokens": prompt_tokens,
-                        "completion_tokens": completion_tokens
-                    })
+                # Try to get active trace (MLflow 2.8+)
+                if hasattr(mlflow, 'last_active_trace'):
+                    active_trace = mlflow.last_active_trace()
+                    if active_trace:
+                        # Format messages for display
+                        formatted_messages = "\n\n".join([
+                            f"**{msg['role'].upper()}:**\n{msg['content']}" 
+                            for msg in messages
+                        ])
+                        
+                        active_trace.set_inputs({
+                            "messages": messages,
+                            "formatted_prompt": formatted_messages,
+                            "model": model,
+                            "temperature": temperature,
+                            "max_tokens": max_tokens
+                        })
+                        
+                        active_trace.set_outputs({
+                            "response": llm_response.content,
+                            "finish_reason": llm_response.finish_reason,
+                            "total_tokens": total_tokens,
+                            "cost_usd": cost
+                        })
+                        
+                        active_trace.set_attributes({
+                            "model": model,
+                            "provider": provider.provider_name,
+                            "latency_seconds": latency,
+                            "prompt_tokens": prompt_tokens,
+                            "completion_tokens": completion_tokens
+                        })
             except Exception as e:
-                # If trace operations fail, continue anyway
-                print(f"Warning: Failed to set trace data: {e}")
+                # If trace operations fail, continue anyway (older MLflow versions)
+                pass
         
         scores = None
         if _auto_evaluate:
