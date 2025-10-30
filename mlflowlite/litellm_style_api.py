@@ -450,6 +450,14 @@ def _execute_completion(
             except Exception:
                 pass
         
+        # Get experiment ID
+        experiment_id = None
+        if _mlflow_enabled and run_context:
+            try:
+                experiment_id = run_context.info.experiment_id
+            except:
+                pass
+        
         response = Response(
             content=llm_response.content,
             model=model,
@@ -462,6 +470,8 @@ def _execute_completion(
                 "finish_reason": llm_response.finish_reason,
             },
             scores=scores,
+            experiment_id=experiment_id,
+            run_id=run_id if run_context else None,
         )
         
         return response
