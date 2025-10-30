@@ -99,15 +99,20 @@ class Agent:
         if tools:
             self._load_tools(tools)
         
-        # Initialize prompt registry
-        self.prompt_registry = PromptRegistry(agent_name=name)
+        # Initialize prompt registry (only if name provided - for versioning)
+        self.prompt_registry = None
+        self.system_prompt = system_prompt
         
-        # Override system prompt if provided
-        if system_prompt:
-            self.prompt_registry.add_version(
-                system_prompt=system_prompt,
-                metadata={"source": "user_provided"}
-            )
+        if name:
+            # Only create registry if name is provided (for versioning)
+            self.prompt_registry = PromptRegistry(agent_name=name)
+            
+            # Override system prompt if provided
+            if system_prompt:
+                self.prompt_registry.add_version(
+                    system_prompt=system_prompt,
+                    metadata={"source": "user_provided"}
+                )
         
         # Initialize tracing - use main mlflowlite experiment if not specified
         if experiment_name is None:
@@ -188,14 +193,23 @@ class Agent:
         # Use litellm_style_api's completion for consistent Response object
         from mlflowlite.litellm_style_api import completion
         
-        messages = [{"role": "user", "content": prompt}]
-        if self.system_prompt or hasattr(self, 'prompt_registry'):
+        messages = []
+        
+        # Add system prompt if available
+        if self.prompt_registry:
+            # Use versioned prompt
             try:
                 current_prompt = self.prompt_registry.get_latest()
                 if current_prompt.system_prompt:
-                    messages.insert(0, {"role": "system", "content": current_prompt.system_prompt})
+                    messages.append({"role": "system", "content": current_prompt.system_prompt})
             except:
                 pass
+        elif self.system_prompt:
+            # Use provided system prompt
+            messages.append({"role": "system", "content": self.system_prompt})
+        
+        # Add user message
+        messages.append({"role": "user", "content": prompt})
         
         return completion(
             model=self.model,
@@ -235,30 +249,43 @@ class Agent:
         )
         
         try:
-            # Get current prompt
-            current_prompt = self.prompt_registry.get_latest()
+            # Initialize conversation with system prompt
+            messages = []
+            current_prompt = None
             
-            # Initialize conversation
-            messages = [
-                Message(
+            if self.prompt_registry:
+                # Get current prompt from registry
+                current_prompt = self.prompt_registry.get_latest()
+                if current_prompt.system_prompt:
+                    messages.append(Message(
+                        role=MessageRole.SYSTEM,
+                        content=current_prompt.system_prompt
+                    ))
+            elif self.system_prompt:
+                # Use provided system prompt
+                messages.append(Message(
                     role=MessageRole.SYSTEM,
-                    content=current_prompt.system_prompt
-                )
-            ]
+                    content=self.system_prompt
+                ))
             
             # Add examples if available
-            for example in current_prompt.examples[:3]:  # Limit to 3 examples
-                messages.append(Message(
-                    role=MessageRole.USER,
-                    content=example["input"]
-                ))
-                messages.append(Message(
-                    role=MessageRole.ASSISTANT,
-                    content=example["output"]
-                ))
+            if current_prompt and current_prompt.examples:
+                for example in current_prompt.examples[:3]:  # Limit to 3 examples
+                    messages.append(Message(
+                        role=MessageRole.USER,
+                        content=example["input"]
+                    ))
+                    messages.append(Message(
+                        role=MessageRole.ASSISTANT,
+                        content=example["output"]
+                    ))
             
             # Add user query
-            user_message = current_prompt.user_template.format(query=query)
+            if current_prompt and hasattr(current_prompt, 'user_template'):
+                user_message = current_prompt.user_template.format(query=query)
+            else:
+                user_message = query
+            
             messages.append(Message(
                 role=MessageRole.USER,
                 content=user_message
@@ -434,10 +461,16 @@ class Agent:
             ))
             
             # Build full conversation
-            current_prompt = self.prompt_registry.get_latest()
-            messages = [
-                Message(role=MessageRole.SYSTEM, content=current_prompt.system_prompt)
-            ] + self.conversation_history
+            messages = []
+            
+            if self.prompt_registry:
+                current_prompt = self.prompt_registry.get_latest()
+                if current_prompt.system_prompt:
+                    messages.append(Message(role=MessageRole.SYSTEM, content=current_prompt.system_prompt))
+            elif self.system_prompt:
+                messages.append(Message(role=MessageRole.SYSTEM, content=self.system_prompt))
+            
+            messages.extend(self.conversation_history)
             
             # Execute
             response = self._execute_loop(messages)
