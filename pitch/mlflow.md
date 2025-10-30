@@ -1,5 +1,0 @@
-Here's the problem: every company using GenAI is basically flying blind. They're spending tens of thousands a month on API calls to OpenAI, Anthropic, whoever — but they have no idea which prompts actually work, what's wasting money, or how to make any of it better. And it's getting worse as more teams spin up their own experiments.
-
-We built MLflow AI Gateway to fix this. It's open source, sits between your app and any LLM, and tracks everything — cost per call, response quality, latency. So now you can actually see what's happening and optimize based on data instead of guessing.
-
-But here's why it matters: it automatically routes requests to the cheapest model that meets your quality bar. Like, if GPT-3.5 works fine for a task, why pay for GPT-4? We're seeing teams cut their GenAI bills by half while actually improving their outputs. The market for this is every company building with AI, and right now most of them are hemorrhaging money without realizing it.
