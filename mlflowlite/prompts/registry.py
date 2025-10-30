@@ -11,6 +11,7 @@ See: https://mlflow.org/docs/2.21.3/prompts
 """
 
 import json
+import os
 import time
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, asdict
@@ -65,6 +66,7 @@ class PromptRegistry:
             registry_path: Legacy parameter (kept for backwards compatibility)
         """
         self.agent_name = agent_name
+        
         # Sanitize prompt name for Databricks/MLflow (only alphanumeric and underscores)
         # Remove all invalid characters and ensure it starts with a letter
         sanitized_name = ''.join(c if c.isalnum() or c == '_' else '_' for c in agent_name)
@@ -73,9 +75,23 @@ class PromptRegistry:
         # Ensure it starts with a letter (prepend 'agent' if it starts with number/underscore)
         if not sanitized_name or not sanitized_name[0].isalpha():
             sanitized_name = f"agent_{sanitized_name}"
+        # Convert to lowercase (Databricks MLflow requires lowercase names)
+        sanitized_name = sanitized_name.lower()
         # Limit length to 64 characters (Databricks limit)
         sanitized_name = sanitized_name[:50]  # Leave room for '_prompt'
-        self.prompt_name = f"{sanitized_name}_prompt"
+        
+        # Detect if running on Databricks and get Unity Catalog schema
+        self.is_databricks = self._is_databricks()
+        self.uc_schema = self._get_uc_schema()
+        
+        # Format prompt name based on environment
+        if self.is_databricks and self.uc_schema:
+            # Databricks Unity Catalog format: catalog.schema.prompt_name
+            self.prompt_name = f"{self.uc_schema}.{sanitized_name}_prompt"
+        else:
+            # Local format: simple name
+            self.prompt_name = f"{sanitized_name}_prompt"
+        
         self.current_version = 0
         
         # For backwards compatibility, keep local registry as fallback
@@ -101,6 +117,55 @@ class PromptRegistry:
         # Initialize with default prompt if empty
         if self.current_version == 0 and not self.versions:
             self._initialize_default_prompt()
+    
+    def _is_databricks(self) -> bool:
+        """Check if running on Databricks."""
+        try:
+            import IPython
+            ipython = IPython.get_ipython()
+            if ipython and 'DATABRICKS' in str(type(ipython)):
+                return True
+        except:
+            pass
+        
+        # Check environment variables
+        return any([
+            'DATABRICKS_RUNTIME_VERSION' in os.environ,
+            'DATABRICKS_HOST' in os.environ,
+            os.path.exists('/databricks/spark/conf')
+        ])
+    
+    def _get_uc_schema(self) -> Optional[str]:
+        """
+        Get Unity Catalog schema for prompts.
+        
+        Priority:
+        1. MLflow experiment tag mlflow.promptRegistryLocation
+        2. Environment variable MLFLOW_PROMPT_REGISTRY_UC_SCHEMA
+        3. Default: main.default (if on Databricks)
+        """
+        if not self.is_databricks:
+            return None
+        
+        # Try to get from MLflow experiment tag
+        try:
+            active_run = mlflow.active_run()
+            if active_run:
+                experiment = mlflow.get_experiment(active_run.info.experiment_id)
+                if experiment and experiment.tags:
+                    uc_schema = experiment.tags.get('mlflow.promptRegistryLocation')
+                    if uc_schema:
+                        return uc_schema
+        except:
+            pass
+        
+        # Try environment variable
+        uc_schema = os.environ.get('MLFLOW_PROMPT_REGISTRY_UC_SCHEMA')
+        if uc_schema:
+            return uc_schema
+        
+        # Default to main.default for Databricks
+        return 'main.default'
     
     def _load_registry(self):
         """Load registry from disk (legacy fallback)."""
@@ -188,28 +253,52 @@ Think step-by-step and explain your reasoning when using tools."""
         try:
             commit_msg = metadata.get('change', 'Updated prompt') if metadata else 'New prompt version'
             
-            # Register prompt with MLflow (parameters vary by version)
-            try:
-                # Try newer API with version_metadata
-                # Sanitize metadata keys to ensure they're valid
-                safe_metadata = {k.replace('-', '_').replace('.', '_'): v 
+            # Register prompt with MLflow
+            # Use appropriate API based on environment
+            import mlflow as mlflow_lib
+            
+            if self.is_databricks:
+                # Databricks: Use mlflow.genai API with Unity Catalog
+                try:
+                    from mlflow import genai as mlflow_genai
+                    # Sanitize metadata for Unity Catalog
+                    safe_tags = {k.replace('-', '_').replace('.', '_'): str(v)
                                for k, v in (metadata or {}).items()}
-                registered_prompt = mlflow.register_prompt(
-                    name=self.prompt_name,
-                    template=full_template,
-                    commit_message=commit_msg,
-                    version_metadata=safe_metadata,
-                    tags={
-                        "agent": self.agent_name[:50],  # Limit tag length
+                    safe_tags.update({
+                        "agent": self.agent_name[:50],
                         "type": "agent_prompt"
-                    }
-                )
-            except TypeError:
-                # Fall back to basic API without version_metadata
-                registered_prompt = mlflow.register_prompt(
-                    name=self.prompt_name,
-                    template=full_template,
-                )
+                    })
+                    
+                    registered_prompt = mlflow_genai.register_prompt(
+                        name=self.prompt_name,  # Full UC path: catalog.schema.prompt_name
+                        template=full_template,
+                        commit_message=commit_msg,
+                        tags=safe_tags
+                    )
+                except Exception as e:
+                    # If Unity Catalog registration fails, let it fall through to local storage
+                    raise e
+            else:
+                # Local: Use legacy mlflow.register_prompt API
+                try:
+                    safe_metadata = {k.replace('-', '_').replace('.', '_'): v 
+                                   for k, v in (metadata or {}).items()}
+                    registered_prompt = mlflow_lib.register_prompt(
+                        name=self.prompt_name,
+                        template=full_template,
+                        commit_message=commit_msg,
+                        version_metadata=safe_metadata,
+                        tags={
+                            "agent": self.agent_name[:50],
+                            "type": "agent_prompt"
+                        }
+                    )
+                except TypeError:
+                    # Fall back to basic API without optional parameters
+                    registered_prompt = mlflow_lib.register_prompt(
+                        name=self.prompt_name,
+                        template=full_template,
+                    )
             
             self.current_version = registered_prompt.version
             print(f"✅ Registered prompt '{self.prompt_name}' version {self.current_version} in MLflow")

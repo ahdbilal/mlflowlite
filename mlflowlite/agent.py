@@ -31,30 +31,47 @@ class AgentResult:
 class Agent:
     """
     Unified interface for LLM calls - from simple queries to complex workflows.
-    
-    Simple usage (replaces query()):
+
+    Simple usage (no prompt versioning):
         >>> agent = Agent(model="claude-3-5-sonnet")
-        >>> response = agent("What is 2+2?")  # Direct call
+        >>> response = agent(prompt="What is 2+2?")
         >>> print(response.content)
-        >>> response.print_links()  # See MLflow UI links
-    
-    Advanced usage (prompt versioning + tools):
-        >>> agent = Agent(name="support_bot", model="claude-3-5-sonnet", 
-        ...               system_prompt="You are helpful", tools=["search"])
-        >>> result = agent.run("Help me troubleshoot")
+
+    Template usage (with MLflow Prompt Registry):
+        >>> agent = Agent(
+        ...     model="claude-3-5-sonnet",
+        ...     prompt="Analyze this support ticket:\n\nTicket: {{ticket}}\n\nProvide: ISSUE, CAUSE, FIX",
+        ...     prompt_name="support_bot"  # Registers to MLflow!
+        ... )
+        >>> response = agent(ticket="User can't login")
+        >>> print(response.content)
+        
+        # View in MLflow UI → Prompts tab → "agent_support_bot_prompt"
+        # Works on Databricks (Unity Catalog) and locally
+
+    Advanced usage (tools + reasoning):
+        >>> agent = Agent(
+        ...     model="claude-3-5-sonnet",
+        ...     prompt="{{query}}",
+        ...     prompt_name="research_bot",
+        ...     tools=["search", "calculator"]
+        ... )
+        >>> result = agent.run(query="What's the GDP of France?")
         >>> print(result.response)
     
-    Note: 'name' is optional. Only needed for prompt versioning.
+    Note: 'prompt_name' is optional. Only needed for MLflow Prompt Registry versioning.
     """
     
     def __init__(
         self,
         model: str,
-        name: Optional[str] = None,  # Optional - only for versioning!
+        prompt: Optional[str] = None,          # Prompt template with {{variables}}
+        prompt_name: Optional[str] = None,     # Name for MLflow Prompt Registry
+        system_prompt: Optional[str] = None,   # Legacy: kept for backwards compatibility
+        name: Optional[str] = None,            # Legacy: alias for prompt_name
         tools: Optional[List[Union[str, Tool]]] = None,
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
-        system_prompt: Optional[str] = None,
         api_key: Optional[str] = None,
         tracking_uri: Optional[str] = None,
         experiment_name: Optional[str] = None,
@@ -68,11 +85,13 @@ class Agent:
         
         Args:
             model: LLM model name (e.g., "claude-3-5-sonnet", "gpt-4o")
-            name: Agent name (optional - only needed for prompt versioning)
+            prompt: Prompt template with {{variables}} in MLflow format
+            prompt_name: Name for MLflow Prompt Registry (triggers registration)
+            system_prompt: Legacy system prompt (backwards compatibility)
+            name: Legacy agent name (alias for prompt_name)
             tools: List of tool names or Tool instances
             temperature: LLM temperature
             max_tokens: Maximum tokens for LLM responses
-            system_prompt: Custom system prompt
             api_key: API key for LLM provider
             tracking_uri: MLflow tracking URI
             experiment_name: MLflow experiment name
@@ -81,13 +100,24 @@ class Agent:
             gateway_url: Gateway URL (if gateway_mode=True)
             **kwargs: Additional LLM provider kwargs
         """
-        self.name = name or f"agent_{id(self)}"  # Auto-generate if not provided
+        # Handle prompt_name vs legacy name
+        self.prompt_name = prompt_name or name
+        self.name = self.prompt_name or f"agent_{id(self)}"  # For backwards compatibility
+        
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.max_iterations = max_iterations
         self.gateway_mode = gateway_mode
         self.gateway_url = gateway_url
+        
+        # Handle prompt vs legacy system_prompt
+        self.prompt = prompt
+        self.system_prompt = system_prompt
+        
+        # Convert legacy system_prompt to prompt format if needed
+        if system_prompt and not prompt:
+            self.prompt = f"{system_prompt}\n\n{{{{query}}}}"
         
         # Initialize LLM provider
         self.llm_provider = self._initialize_llm_provider(
@@ -99,20 +129,17 @@ class Agent:
         if tools:
             self._load_tools(tools)
         
-        # Initialize prompt registry (only if name provided - for versioning)
+        # Initialize prompt registry (only if prompt_name provided)
         self.prompt_registry = None
-        self.system_prompt = system_prompt
         
-        if name:
-            # Only create registry if name is provided (for versioning)
-            self.prompt_registry = PromptRegistry(agent_name=name)
-            
-            # Override system prompt if provided
-            if system_prompt:
-                self.prompt_registry.add_version(
-                    system_prompt=system_prompt,
-                    metadata={"source": "user_provided"}
-                )
+        if self.prompt_name and self.prompt:
+            # Register prompt to MLflow
+            self.prompt_registry = PromptRegistry(agent_name=self.prompt_name)
+            self.prompt_registry.add_version(
+                system_prompt=self.prompt,  # Store full prompt as system_prompt for now
+                user_template="{{query}}",  # Default user template
+                metadata={"source": "user_provided", "format": "mlflow"}
+            )
         
         # Initialize tracing - use main mlflowlite experiment if not specified
         if experiment_name is None:
@@ -174,49 +201,70 @@ class Agent:
             else:
                 print(f"Warning: Invalid tool type: {type(tool)}")
     
-    def __call__(self, prompt: str, **kwargs):
+    def __call__(self, prompt: Optional[str] = None, **variables):
         """
         Simple callable interface - use Agent like query().
         
         Args:
-            prompt: The prompt/query
-            **kwargs: Additional parameters
+            prompt: Direct prompt (if no registered prompt with {{variables}})
+            **variables: Variables to fill into {{placeholders}} (e.g., query="...", ticket="...")
         
         Returns:
             Response object (same as query())
         
-        Example:
+        Examples:
+            >>> # Simple mode: Direct prompt
             >>> agent = Agent(model="claude-3-5-sonnet")
-            >>> response = agent("Hello!")
-            >>> print(response.content)
+            >>> response = agent(prompt="Hello!")
+            
+            >>> # Template mode: Fill variables
+            >>> agent = Agent(model="claude-3-5-sonnet", 
+            ...               prompt="Analyze: {{ticket}}", 
+            ...               prompt_name="support_bot")
+            >>> response = agent(ticket="User can't login")
         """
         # Use litellm_style_api's completion for consistent Response object
         from mlflowlite.litellm_style_api import completion
         
         messages = []
         
-        # Add system prompt if available
-        if self.prompt_registry:
-            # Use versioned prompt
+        # Determine what prompt to use
+        if self.prompt and variables:
+            # Template mode: Fill {{variables}} in registered prompt
             try:
-                current_prompt = self.prompt_registry.get_latest()
-                if current_prompt.system_prompt:
-                    messages.append({"role": "system", "content": current_prompt.system_prompt})
-            except:
-                pass
-        elif self.system_prompt:
-            # Use provided system prompt
-            messages.append({"role": "system", "content": self.system_prompt})
+                # Simple format: replace {{var}} with values
+                filled_prompt = self.prompt
+                for key, value in variables.items():
+                    filled_prompt = filled_prompt.replace(f"{{{{{key}}}}}", str(value))
+                messages.append({"role": "user", "content": filled_prompt})
+            except Exception as e:
+                raise ValueError(f"Failed to fill template variables: {e}")
         
-        # Add user message
-        messages.append({"role": "user", "content": prompt})
+        elif prompt:
+            # Simple mode: Direct prompt
+            # Add system prompt if available
+            if self.prompt_registry:
+                try:
+                    current_prompt = self.prompt_registry.get_latest()
+                    if current_prompt.system_prompt:
+                        messages.append({"role": "system", "content": current_prompt.system_prompt})
+                except:
+                    pass
+            elif self.system_prompt:
+                # Use provided system prompt
+                messages.append({"role": "system", "content": self.system_prompt})
+            
+            # Add user message
+            messages.append({"role": "user", "content": prompt})
+        
+        else:
+            raise ValueError("Provide either prompt=... for simple queries, or variables (e.g., ticket=...) for template prompts")
         
         return completion(
             model=self.model,
             messages=messages,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
-            **kwargs
         )
     
     def run(

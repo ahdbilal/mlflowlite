@@ -46,9 +46,6 @@ mlartifacts/
 .ipynb_checkpoints/
 *.ipynb_checkpoints
 
-# Notebook with API keys (do not commit)
-MLflowlite_Demo.ipynb
-
 # Testing
 .pytest_cache/
 .coverage
