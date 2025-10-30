@@ -65,7 +65,9 @@ class PromptRegistry:
             registry_path: Legacy parameter (kept for backwards compatibility)
         """
         self.agent_name = agent_name
-        self.prompt_name = f"agent_{agent_name}_prompt"
+        # Sanitize prompt name for Databricks/MLflow (only alphanumeric and underscores)
+        sanitized_name = ''.join(c if c.isalnum() or c == '_' else '_' for c in agent_name)
+        self.prompt_name = f"agent_{sanitized_name}_prompt"
         self.current_version = 0
         
         # For backwards compatibility, keep local registry as fallback
