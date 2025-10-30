@@ -166,12 +166,13 @@ def get_provider(
         if not model.startswith("claude-"):
             normalized_model = model
         # Map common shortcuts to full model names
-        if "claude-3-5-sonnet" in model_lower and "20" not in model:
-            normalized_model = "claude-3-5-sonnet-20240620"  # Latest stable version
-        elif "claude-3-opus" in model_lower and "20" not in model:
-            normalized_model = "claude-3-opus-20240229"
+        # Note: Claude 3.5 Sonnet not available, using Claude 3 Opus as best alternative
+        if "claude-3-5-sonnet" in model_lower:
+            normalized_model = "claude-3-opus-latest"  # Best available model
+        elif "claude-3-opus" in model_lower and "20" not in model and "latest" not in model:
+            normalized_model = "claude-3-opus-latest"
         elif "claude-3-sonnet" in model_lower and "20" not in model:
-            normalized_model = "claude-3-sonnet-20240229"
+            normalized_model = "claude-3-opus-latest"  # Fallback to opus
         elif "claude-3-haiku" in model_lower and "20" not in model:
             normalized_model = "claude-3-haiku-20240307"
         return AnthropicProvider(normalized_model, temperature, max_tokens, api_key, **kwargs)
