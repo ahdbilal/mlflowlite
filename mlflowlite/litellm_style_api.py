@@ -53,12 +53,39 @@ class Response:
     
     # Evaluation scores (auto-calculated)
     scores: Optional[Dict[str, float]] = None
+    # MLflow tracking info
+    experiment_id: Optional[str] = None
+    run_id: Optional[str] = None
     
     def __str__(self) -> str:
         return self.content
     
     def __repr__(self) -> str:
         return f"Response(model={self.model!r}, tokens={self.usage.get('total_tokens', 0)}, cost=${self.cost:.4f})"
+    
+    def get_mlflow_links(self, tracking_uri: str = "http://localhost:5000") -> Dict[str, str]:
+        """Get MLflow UI links for this response."""
+        links = {}
+        if self.experiment_id and self.run_id:
+            links["run"] = f"{tracking_uri}/#/experiments/{self.experiment_id}/runs/{self.run_id}"
+            links["experiment"] = f"{tracking_uri}/#/experiments/{self.experiment_id}"
+        if self.trace_id and self.trace_id != "no_trace" and self.trace_id != "no_run":
+            # Trace view might not be available in all MLflow versions
+            links["artifacts"] = f"{tracking_uri}/#/experiments/{self.experiment_id}/runs/{self.run_id}/artifactPath" if self.experiment_id and self.run_id else None
+        return {k: v for k, v in links.items() if v}
+    
+    def print_links(self, tracking_uri: str = "http://localhost:5000"):
+        """Print clickable MLflow UI links."""
+        links = self.get_mlflow_links(tracking_uri)
+        if links:
+            print("\n🔗 MLflow UI Links:")
+            if "run" in links:
+                print(f"   📊 Run Details: {links['run']}")
+            if "experiment" in links:
+                print(f"   🧪 Experiment: {links['experiment']}")
+            if "artifacts" in links:
+                print(f"   📁 Artifacts: {links['artifacts']}")
+            print("\n   💡 Tip: Click Cmd/Ctrl + Click to open in browser")
 
 
 # Global tracking state
@@ -905,13 +932,14 @@ def get_available_models() -> Dict[str, List[str]]:
 
 
 # Helper to print response nicely
-def print_response(response: Response, show_metadata: bool = False):
+def print_response(response: Response, show_metadata: bool = False, show_links: bool = True):
     """
     Pretty print a response.
     
     Args:
         response: Response object
         show_metadata: Whether to show metadata
+        show_links: Whether to show MLflow UI links (default: True)
     """
     print("=" * 60)
     print(f"Model: {response.model}")
@@ -926,3 +954,7 @@ def print_response(response: Response, show_metadata: bool = False):
     if show_metadata:
         print(f"\nMetadata: {response.metadata}")
         print(f"Trace ID: {response.trace_id}")
+    
+    # Show MLflow UI links
+    if show_links:
+        response.print_links()
