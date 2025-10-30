@@ -424,8 +424,19 @@ def _execute_completion(
                             trace_attrs["prompt_version"] = prompt_metadata["prompt_version"]
                         if "prompt_registry_name" in prompt_metadata:
                             trace_attrs["prompt_registry_name"] = prompt_metadata["prompt_registry_name"]
+                            # Add MLflow-specific prompt linkage attributes
+                            trace_attrs["mlflow.promptName"] = prompt_metadata["prompt_registry_name"]
+                            trace_attrs["mlflow.promptVersion"] = str(prompt_metadata["prompt_version"])
                         
                         active_trace.set_attributes(trace_attrs)
+                        
+                        # Also set as trace tags for better MLflow UI integration
+                        if "prompt_registry_name" in prompt_metadata:
+                            try:
+                                active_trace.set_tag("mlflow.promptName", prompt_metadata["prompt_registry_name"])
+                                active_trace.set_tag("mlflow.promptVersion", str(prompt_metadata["prompt_version"]))
+                            except:
+                                pass
             except Exception as e:
                 # If trace operations fail, continue anyway (older MLflow versions)
                 pass
@@ -481,6 +492,19 @@ def _execute_completion(
                     mlflow.log_param("prompt_version", prompt_metadata["prompt_version"])
                 if "prompt_registry_name" in prompt_metadata:
                     mlflow.log_param("prompt_registry_name", prompt_metadata["prompt_registry_name"])
+                
+                # Link prompt to trace using MLflow's prompt tracking tags
+                if "prompt_registry_name" in prompt_metadata and "prompt_version" in prompt_metadata:
+                    try:
+                        prompt_name = prompt_metadata["prompt_registry_name"]
+                        prompt_version = prompt_metadata["prompt_version"]
+                        
+                        # Set MLflow tags for prompt linkage (MLflow UI recognizes these)
+                        mlflow.set_tag("mlflow.promptName", prompt_name)
+                        mlflow.set_tag("mlflow.promptVersion", str(prompt_version))
+                        mlflow.set_tag("mlflow.promptSource", f"prompts:/{prompt_name}/{prompt_version}")
+                    except Exception:
+                        pass
                 
                 mlflow.log_metric("latency_seconds", latency)
                 mlflow.log_metric("total_tokens", total_tokens)
