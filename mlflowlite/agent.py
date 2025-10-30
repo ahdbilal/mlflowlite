@@ -30,18 +30,27 @@ class AgentResult:
 
 class Agent:
     """
-    MLflow-native Agent with automatic tracing and self-improvement.
+    Unified interface for LLM calls - from simple queries to complex workflows.
     
-    Example:
-        >>> agent = Agent(name="support_bot", model="claude-sonnet-4-5", tools=["search"])
-        >>> result = agent.run("Help me troubleshoot login issues")
+    Simple usage (replaces query()):
+        >>> agent = Agent(model="claude-3-5-sonnet")
+        >>> response = agent("What is 2+2?")  # Direct call
+        >>> print(response.content)
+        >>> response.print_links()  # See MLflow UI links
+    
+    Advanced usage (prompt versioning + tools):
+        >>> agent = Agent(name="support_bot", model="claude-3-5-sonnet", 
+        ...               system_prompt="You are helpful", tools=["search"])
+        >>> result = agent.run("Help me troubleshoot")
         >>> print(result.response)
+    
+    Note: 'name' is optional. Only needed for prompt versioning.
     """
     
     def __init__(
         self,
-        name: str,
         model: str,
+        name: Optional[str] = None,  # Optional - only for versioning!
         tools: Optional[List[Union[str, Tool]]] = None,
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
@@ -55,15 +64,15 @@ class Agent:
         **kwargs
     ):
         """
-        Initialize an MLflow Agent.
+        Initialize an Agent.
         
         Args:
-            name: Agent name (used for tracing and registry)
-            model: LLM model name (e.g., "gpt-4o", "claude-sonnet-4-5")
+            model: LLM model name (e.g., "claude-3-5-sonnet", "gpt-4o")
+            name: Agent name (optional - only needed for prompt versioning)
             tools: List of tool names or Tool instances
             temperature: LLM temperature
             max_tokens: Maximum tokens for LLM responses
-            system_prompt: Custom system prompt (uses default if not provided)
+            system_prompt: Custom system prompt
             api_key: API key for LLM provider
             tracking_uri: MLflow tracking URI
             experiment_name: MLflow experiment name
@@ -72,7 +81,7 @@ class Agent:
             gateway_url: Gateway URL (if gateway_mode=True)
             **kwargs: Additional LLM provider kwargs
         """
-        self.name = name
+        self.name = name or f"agent_{id(self)}"  # Auto-generate if not provided
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
@@ -159,6 +168,42 @@ class Agent:
                 self.tools[tool.name] = tool
             else:
                 print(f"Warning: Invalid tool type: {type(tool)}")
+    
+    def __call__(self, prompt: str, **kwargs):
+        """
+        Simple callable interface - use Agent like query().
+        
+        Args:
+            prompt: The prompt/query
+            **kwargs: Additional parameters
+        
+        Returns:
+            Response object (same as query())
+        
+        Example:
+            >>> agent = Agent(model="claude-3-5-sonnet")
+            >>> response = agent("Hello!")
+            >>> print(response.content)
+        """
+        # Use litellm_style_api's completion for consistent Response object
+        from mlflowlite.litellm_style_api import completion
+        
+        messages = [{"role": "user", "content": prompt}]
+        if self.system_prompt or hasattr(self, 'prompt_registry'):
+            try:
+                current_prompt = self.prompt_registry.get_latest()
+                if current_prompt.system_prompt:
+                    messages.insert(0, {"role": "system", "content": current_prompt.system_prompt})
+            except:
+                pass
+        
+        return completion(
+            model=self.model,
+            messages=messages,
+            temperature=self.temperature,
+            max_tokens=self.max_tokens,
+            **kwargs
+        )
     
     def run(
         self,
