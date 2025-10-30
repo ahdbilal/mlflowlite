@@ -477,13 +477,20 @@ def _execute_completion(
             except Exception:
                 pass
         
-        # Get experiment ID
+        # Get experiment ID and finalize run_id
         experiment_id = None
+        actual_run_id = None
         if _mlflow_enabled and run_context:
             try:
                 experiment_id = run_context.info.experiment_id
+                actual_run_id = run_context.info.run_id
             except:
                 pass
+        
+        # Use run_id as primary identifier (trace_id not available in older MLflow)
+        final_trace_id = actual_run_id or trace_id
+        if final_trace_id == "no_trace" or final_trace_id == "no_run":
+            final_trace_id = actual_run_id if actual_run_id else "no_id"
         
         response = Response(
             content=llm_response.content,
@@ -491,14 +498,14 @@ def _execute_completion(
             usage=usage,
             latency=latency,
             cost=cost,
-            trace_id=trace_id or run_id,  # Use run_id as fallback
+            trace_id=final_trace_id,
             metadata={
                 "provider": provider.provider_name,
                 "finish_reason": llm_response.finish_reason,
             },
             scores=scores,
             experiment_id=experiment_id,
-            run_id=run_id if run_context else None,
+            run_id=actual_run_id,
         )
         
         return response
