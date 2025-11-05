@@ -93,6 +93,65 @@ variant, response = test.run(messages=[...])
 test.print_report()  # See which performs better
 ```
 
+### 6. GenAI Evaluation
+MLflow-style evaluation with built-in and custom scorers. Systematically measure quality at scale.
+
+```python
+from mlflowlite import evaluate, Correctness, Guidelines, scorer
+
+# Define evaluation dataset
+eval_dataset = [
+    {
+        "inputs": {"question": "What is the capital of France?"},
+        "expectations": {"expected_response": "Paris"},
+    },
+]
+
+# Define prediction function
+def qa_predict_fn(question: str) -> str:
+    return ml.completion(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": question}]
+    ).content
+
+# Built-in scorers (LLM-as-a-Judge)
+correctness_scorer = Correctness()
+english_scorer = Guidelines(name="is_english", guidelines="Answer must be in English")
+
+# Custom scorer
+@scorer
+def is_concise(outputs: str) -> bool:
+    return len(outputs.split()) <= 20
+
+# Run evaluation
+results = evaluate(
+    data=eval_dataset,
+    predict_fn=qa_predict_fn,
+    scorers=[correctness_scorer, english_scorer, is_concise],
+)
+
+# View results
+print(results.aggregate_scores)
+df = results.to_dataframe()
+```
+
+**Built-in Scorers:**
+- `Correctness` - Check factual accuracy using LLM-as-a-Judge
+- `Guidelines` - Check adherence to natural language rules
+- `Relevance` - Check if response is on-topic
+- `Faithfulness` - Check for hallucinations (RAG apps)
+- `Conciseness` - Check response length
+
+**Evaluate Traces:** Retroactively evaluate captured traces
+```python
+from mlflowlite import evaluate_with_traces
+
+results = evaluate_with_traces(
+    traces=agent_traces,
+    scorers=[correctness_scorer, english_scorer],
+)
+```
+
 ## API
 
 ### Main Functions
@@ -178,6 +237,7 @@ mlflow ui
 - `examples/quick_start.py` - Minimal example
 - `examples/reliability_demo.py` - Retry, timeout, fallbacks
 - `examples/routing_demo.py` - Smart routing & A/B testing
+- `examples/evaluation_demo.py` - GenAI evaluation with scorers
 
 ## Troubleshooting
 

@@ -39,6 +39,19 @@ from mlflowlite.simple_api import (
     QueryResult,
 )
 
+# Evaluation API (MLflow GenAI-style)
+from mlflowlite.evaluation import (
+    evaluate,
+    evaluate_with_traces,
+    EvaluationResults,
+    Correctness,
+    Guidelines,
+    Relevance,
+    Conciseness,
+    Faithfulness,
+    scorer,
+)
+
 __version__ = "0.1.0"
 __all__ = [
     # Core classes
@@ -71,5 +84,15 @@ __all__ = [
     "ai_query",
     "compare_models",
     "QueryResult",
+    # Evaluation API
+    "evaluate",
+    "evaluate_with_traces",
+    "EvaluationResults",
+    "Correctness",
+    "Guidelines",
+    "Relevance",
+    "Conciseness",
+    "Faithfulness",
+    "scorer",
 ]
 
