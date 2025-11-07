@@ -1,5 +1,5 @@
 # Core Dependencies
-mlflow>=2.10.0
+mlflow>=3.5.0  # Required for mlflow.genai.optimize_prompts()
 litellm>=1.30.0
 pydantic>=2.0.0
 python-dotenv>=1.0.0
