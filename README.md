@@ -1,6 +1,19 @@
-# mlflowlite
+# MLflow AI Gateway
 
-Easy LLM observability with automatic MLflow tracing.
+**Keep your GenAI stack at the frontier without breaking production.**
+
+When new models (GPT-5, Claude Sonnet 4.5, Gemini 2.5) are released, platform teams need to **evaluate, compare, and gradually migrate** their apps — balancing quality, latency, cost, and governance. MLflow AI Gateway makes this seamless with a single unified API.
+
+## Core Use Case: Model Migration Workflow
+
+1. ✅ **Baseline Capture** - Collect outputs from your current model
+2. 🔄 **New Model Evaluation** - Compare side-by-side with same prompts
+3. 🎯 **Automatic Optimization** - Auto-rewrite prompts for new models
+4. 📊 **Performance Comparison** - Quality, latency, cost analysis
+5. 🚀 **Gradual Migration** - Risk-free A/B testing and rollout
+6. ✨ **Production Deployment** - Zero downtime, zero code changes
+
+**Key Benefit:** One API for all models. Switch providers, upgrade models, optimize costs — without rewriting code.
 
 ## Installation
 
