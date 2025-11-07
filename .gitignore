@@ -33,6 +33,7 @@ env/
 mlruns/
 mlartifacts/
 .mlflow/
+mlflow.db  # SQLite database for MLflow tracking
 
 # IDE
 .vscode/
