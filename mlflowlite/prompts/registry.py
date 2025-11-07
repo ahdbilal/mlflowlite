@@ -318,8 +318,9 @@ Think step-by-step and explain your reasoning when using tools."""
             print(f"   View in MLflow UI: Prompts tab → {self.prompt_name}")
             
         except Exception as e:
-            print(f"Warning: Failed to register prompt with MLflow: {e}")
-            print("Using local storage as fallback...")
+            print(f"⚠️  MLflow registration failed: {e}")
+            print("📝 Using local storage as fallback...")
+            # Continue with local storage
         
         # Create version object (for backwards compatibility and local storage)
         new_version = PromptVersion(
@@ -331,8 +332,13 @@ Think step-by-step and explain your reasoning when using tools."""
             created_at=datetime.now().isoformat(),
         )
         
+        # Always add to local storage
         self.versions.append(new_version)
+        self.current_version = version_num
         self._save_registry()
+        
+        print(f"✅ Saved prompt version {version_num} (local storage)")
+        print(f"   Agent: {self.agent_name}, Versions: {len(self.versions)}")
         
         return new_version
     
