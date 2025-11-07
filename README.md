@@ -39,6 +39,8 @@ cp .env.example .env
 # Open MLflowlite_Demo.ipynb
 ```
 
+**Note:** The demo notebook uses SQLite for MLflow tracking (required for `mlflow.genai.optimize_prompts()`). The database file `mlflow.db` is created automatically.
+
 ## Features
 
 ### 1. Automatic Tracing
