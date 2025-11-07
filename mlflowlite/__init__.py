@@ -52,6 +52,9 @@ from mlflowlite.evaluation import (
     scorer,
 )
 
+# Prompt Registry
+from mlflowlite.prompts import load_prompt
+
 __version__ = "0.1.0"
 __all__ = [
     # Core classes
@@ -94,5 +97,7 @@ __all__ = [
     "Conciseness",
     "Faithfulness",
     "scorer",
+    # Prompt Registry
+    "load_prompt",
 ]
 

@@ -484,3 +484,43 @@ Think step-by-step and explain your reasoning when using tools."""
                 "rollback_at": datetime.now().isoformat(),
             }
         )
+
+
+def load_prompt(name: str, version: Optional[int] = None) -> str:
+    """
+    Load a prompt from MLflow Prompt Registry.
+    
+    Clean, simple API for retrieving prompts:
+    
+    Args:
+        name: Prompt name (e.g., "sentiment_classifier")
+        version: Optional version number. If None, loads latest.
+    
+    Returns:
+        Prompt text (system_prompt)
+    
+    Examples:
+        >>> # Load latest version
+        >>> prompt = load_prompt("sentiment_classifier")
+        >>> 
+        >>> # Load specific version
+        >>> prompt = load_prompt("sentiment_classifier", version=1)
+        >>> 
+        >>> # Use inline with Agent
+        >>> result = Agent(
+        ...     model="claude-sonnet-4-20250514",
+        ...     prompt=load_prompt("sentiment_classifier", version=1)
+        ... )(text="Great!")
+    """
+    registry = PromptRegistry(agent_name=name)
+    
+    if version is None:
+        # Load latest
+        prompt_version = registry.get_latest()
+    else:
+        # Load specific version
+        prompt_version = registry.get_version(version)
+        if not prompt_version:
+            raise ValueError(f"Version {version} not found for prompt '{name}'")
+    
+    return prompt_version.system_prompt
