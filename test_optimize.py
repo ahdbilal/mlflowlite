@@ -152,11 +152,19 @@ from mlflow.genai.optimize import GepaPromptOptimizer
 from mlflow.genai.scorers import Equivalence
 
 print("   Model: Claude 3.5 Haiku (target)")
-print("   Judge: Claude Sonnet 4.0 (anthropic:/ URI)")
+print("   Judge: Claude Sonnet 4.0 (Anthropic)")
 print("   Scorer: Equivalence (semantic similarity)")
+print("   All-Anthropic stack!")
 print()
 
 try:
+    print("   🔍 Debug: Dataset structure check...")
+    print(f"      Records: {len(records)}")
+    print(f"      First record keys: {list(records[0].keys())}")
+    print(f"      First record inputs: {list(records[0]['inputs'].keys())}")
+    print(f"      First record expectations: {list(records[0]['expectations'].keys())}")
+    print()
+    
     optimization_result = mlflow.genai.optimize_prompts(
         predict_fn=predict_fn,
         train_data=dataset,
