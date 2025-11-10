@@ -120,14 +120,14 @@ def predict_fn(ticket, prompts=None):
     # CRITICAL: Call .format() so MLflow tracks prompt usage!
     formatted_prompt = prompt.format(ticket=ticket)
     
-    # Create agent with formatted prompt
+    # Create agent with formatted prompt and call it
+    # Since prompt is fully formatted, pass it as the query
     agent = Agent(
-        model='claude-3-5-haiku-20241022',
-        prompt=formatted_prompt
+        model='claude-3-5-haiku-20241022'
     )
     
-    # Call agent (ticket already embedded)
-    result = agent()
+    # Call agent with the formatted prompt as input
+    result = agent(prompt=formatted_prompt)
     return result.content
 
 print("   ✅ predict_fn defined")
