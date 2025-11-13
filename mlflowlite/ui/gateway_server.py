@@ -4,10 +4,15 @@ Serves the Gateway management UI alongside MLflow
 """
 import os
 from flask import Flask, send_from_directory, redirect
-from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app)
+
+# Optional CORS support
+try:
+    from flask_cors import CORS
+    CORS(app)
+except ImportError:
+    pass  # CORS not needed for local development
 
 # Get the directory where this script is located
 GATEWAY_UI_DIR = os.path.join(os.path.dirname(__file__), 'gateway')
