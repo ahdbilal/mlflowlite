@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MLflow Gateway - Model Endpoints</title>
+    <link rel="shortcut icon" href="../../static-files/favicon.ico"/>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+            background: #f5f5f5;
+            color: #333;
+        }
+
+        /* MLflow-style header */
+        .mlflow-header {
+            background: #fff;
+            border-bottom: 1px solid #e0e0e0;
+            padding: 0;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+        }
+
+        .header-content {
+            display: flex;
+            align-items: center;
+            padding: 12px 24px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .mlflow-logo {
+            font-size: 20px;
+            font-weight: 600;
+            color: #43C9ED;
+            margin-right: 40px;
+            text-decoration: none;
+        }
+
+        .nav-tabs {
+            display: flex;
+            gap: 8px;
+            flex: 1;
+        }
+
+        .nav-tab {
+            padding: 8px 16px;
+            border-radius: 4px;
+            text-decoration: none;
+            color: #666;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        .nav-tab:hover {
+            background: #f0f0f0;
+            color: #333;
+        }
+
+        .nav-tab.active {
+            background: #43C9ED;
+            color: white;
+        }
+
+        /* Main content */
+        .main-content {
+            max-width: 1400px;
+            margin: 80px auto 40px;
+            padding: 0 24px;
+        }
+
+        .page-header {
+            background: white;
+            padding: 24px;
+            border-radius: 8px;
+            margin-bottom: 24px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .page-title {
+            font-size: 28px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #1a1a1a;
+        }
+
+        .page-subtitle {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .action-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .search-box {
+            padding: 10px 16px;
+            border: 1px solid #d0d0d0;
+            border-radius: 4px;
+            width: 300px;
+            font-size: 14px;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: #43C9ED;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #2ab3d8;
+        }
+
+        .btn-secondary {
+            background: #f0f0f0;
+            color: #333;
+        }
+
+        .btn-secondary:hover {
+            background: #e0e0e0;
+        }
+
+        .btn-danger {
+            background: #ff4d4f;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #ff7875;
+        }
+
+        /* Endpoints table */
+        .endpoints-card {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .endpoints-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .endpoints-table th {
+            background: #fafafa;
+            padding: 16px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 13px;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .endpoints-table td {
+            padding: 16px;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .endpoints-table tr:hover {
+            background: #fafafa;
+        }
+
+        .endpoint-name {
+            font-weight: 500;
+            color: #1a1a1a;
+            font-size: 14px;
+        }
+
+        .endpoint-url {
+            color: #666;
+            font-size: 12px;
+            font-family: monospace;
+            margin-top: 4px;
+        }
+
+        .provider-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .provider-openai {
+            background: #10a37f20;
+            color: #10a37f;
+        }
+
+        .provider-anthropic {
+            background: #d4a27320;
+            color: #b8860b;
+        }
+
+        .provider-azure {
+            background: #008ad720;
+            color: #0078d4;
+        }
+
+        .provider-google {
+            background: #4285f420;
+            color: #4285f4;
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .status-active {
+            background: #52c41a20;
+            color: #52c41a;
+        }
+
+        .status-inactive {
+            background: #ff4d4f20;
+            color: #ff4d4f;
+        }
+
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: currentColor;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 8px;
+        }
+
+        .btn-icon {
+            padding: 6px 12px;
+            background: transparent;
+            border: 1px solid #d0d0d0;
+            border-radius: 4px;
+            cursor: pointer;
+            color: #666;
+            font-size: 12px;
+            transition: all 0.2s;
+        }
+
+        .btn-icon:hover {
+            border-color: #43C9ED;
+            color: #43C9ED;
+        }
+
+        /* Modal */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-overlay.active {
+            display: flex;
+        }
+
+        .modal {
+            background: white;
+            border-radius: 8px;
+            width: 90%;
+            max-width: 600px;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-title {
+            font-size: 20px;
+            font-weight: 600;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            font-size: 24px;
+            color: #999;
+            cursor: pointer;
+            padding: 0;
+            width: 30px;
+            height: 30px;
+        }
+
+        .close-btn:hover {
+            color: #333;
+        }
+
+        .modal-body {
+            padding: 24px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            font-size: 14px;
+            color: #333;
+        }
+
+        .form-label .required {
+            color: #ff4d4f;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #d0d0d0;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: #43C9ED;
+        }
+
+        .form-select {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #d0d0d0;
+            border-radius: 4px;
+            font-size: 14px;
+            background: white;
+        }
+
+        .form-hint {
+            font-size: 12px;
+            color: #999;
+            margin-top: 4px;
+        }
+
+        .modal-footer {
+            padding: 16px 24px;
+            border-top: 1px solid #e0e0e0;
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+        }
+
+        .empty-state-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+
+        .empty-state-title {
+            font-size: 18px;
+            font-weight: 500;
+            color: #666;
+            margin-bottom: 8px;
+        }
+
+        .empty-state-text {
+            font-size: 14px;
+            color: #999;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <!-- MLflow Header -->
+    <header class="mlflow-header">
+        <div class="header-content">
+            <a href="/" class="mlflow-logo">MLflow</a>
+            <nav class="nav-tabs">
+                <a href="/" class="nav-tab">Experiments</a>
+                <a href="/models" class="nav-tab">Models</a>
+                <a href="/prompts" class="nav-tab">Prompts</a>
+                <a href="#" class="nav-tab active">Gateway</a>
+            </nav>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <div class="main-content">
+        <div class="page-header">
+            <h1 class="page-title">🚀 Gateway - Model Endpoints</h1>
+            <p class="page-subtitle">Centrally manage LLM provider endpoints and authentication. Developers can reference these endpoints without managing API keys.</p>
+        </div>
+
+        <div class="action-bar">
+            <input type="text" class="search-box" id="searchBox" placeholder="Search endpoints...">
+            <button class="btn btn-primary" onclick="openCreateModal()">+ Create Endpoint</button>
+        </div>
+
+        <div class="endpoints-card">
+            <table class="endpoints-table" id="endpointsTable">
+                <thead>
+                    <tr>
+                        <th>Endpoint Name</th>
+                        <th>Provider</th>
+                        <th>Model</th>
+                        <th>Status</th>
+                        <th>Created By</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="endpointsBody">
+                    <!-- Endpoints will be inserted here -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Create/Edit Endpoint Modal -->
+    <div class="modal-overlay" id="endpointModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 class="modal-title" id="modalTitle">Create Endpoint</h2>
+                <button class="close-btn" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="endpointForm">
+                    <div class="form-group">
+                        <label class="form-label">Endpoint Name <span class="required">*</span></label>
+                        <input type="text" class="form-input" id="endpointName" placeholder="e.g., prod-gpt4" required>
+                        <div class="form-hint">Unique identifier for this endpoint</div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Provider <span class="required">*</span></label>
+                        <select class="form-select" id="provider" required onchange="updateProviderFields()">
+                            <option value="">Select provider...</option>
+                            <option value="openai">OpenAI</option>
+                            <option value="anthropic">Anthropic</option>
+                            <option value="azure">Azure OpenAI</option>
+                            <option value="google">Google (Gemini)</option>
+                            <option value="aws">AWS Bedrock</option>
+                            <option value="cohere">Cohere</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group" id="modelGroup" style="display: none;">
+                        <label class="form-label">Model <span class="required">*</span></label>
+                        <select class="form-select" id="model">
+                            <!-- Options will be populated based on provider -->
+                        </select>
+                    </div>
+
+                    <div class="form-group" id="apiKeyGroup" style="display: none;">
+                        <label class="form-label">API Key <span class="required">*</span></label>
+                        <input type="password" class="form-input" id="apiKey" placeholder="sk-...">
+                        <div class="form-hint">Your provider API key (stored securely)</div>
+                    </div>
+
+                    <div class="form-group" id="baseUrlGroup" style="display: none;">
+                        <label class="form-label">Base URL</label>
+                        <input type="text" class="form-input" id="baseUrl" placeholder="https://api.openai.com/v1">
+                        <div class="form-hint">Override the default API endpoint</div>
+                    </div>
+
+                    <div class="form-group" id="regionGroup" style="display: none;">
+                        <label class="form-label">Region</label>
+                        <select class="form-select" id="region">
+                            <option value="us-east-1">US East (N. Virginia)</option>
+                            <option value="us-west-2">US West (Oregon)</option>
+                            <option value="eu-west-1">EU (Ireland)</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Description</label>
+                        <input type="text" class="form-input" id="description" placeholder="Production GPT-4 endpoint">
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Status</label>
+                        <select class="form-select" id="status">
+                            <option value="active">Active</option>
+                            <option value="inactive">Inactive</option>
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="saveEndpoint()">Save Endpoint</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Mock data store
+        let endpoints = [
+            {
+                id: 1,
+                name: 'prod-gpt4',
+                provider: 'openai',
+                model: 'gpt-4o',
+                status: 'active',
+                createdBy: 'admin',
+                description: 'Production GPT-4 endpoint',
+                apiKey: 'sk-***hidden***'
+            },
+            {
+                id: 2,
+                name: 'dev-claude',
+                provider: 'anthropic',
+                model: 'claude-sonnet-4-5-20250929',
+                status: 'active',
+                createdBy: 'dev-team',
+                description: 'Development Claude endpoint',
+                apiKey: 'sk-ant-***hidden***'
+            },
+            {
+                id: 3,
+                name: 'azure-gpt35',
+                provider: 'azure',
+                model: 'gpt-3.5-turbo',
+                status: 'inactive',
+                createdBy: 'admin',
+                description: 'Azure OpenAI for internal tools',
+                apiKey: '***hidden***'
+            }
+        ];
+
+        let editingId = null;
+
+        const providerModels = {
+            openai: ['gpt-4o', 'gpt-4-turbo', 'gpt-3.5-turbo', 'gpt-4o-mini'],
+            anthropic: ['claude-sonnet-4-5-20250929', 'claude-haiku-4-5-20251001', 'claude-3-opus', 'claude-3-haiku'],
+            azure: ['gpt-4', 'gpt-35-turbo', 'gpt-4-32k'],
+            google: ['gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-pro'],
+            aws: ['anthropic.claude-v2', 'anthropic.claude-instant-v1', 'amazon.titan-text-express-v1'],
+            cohere: ['command-r-plus', 'command-r', 'command']
+        };
+
+        function renderEndpoints() {
+            const tbody = document.getElementById('endpointsBody');
+            const searchTerm = document.getElementById('searchBox').value.toLowerCase();
+            
+            const filtered = endpoints.filter(e => 
+                e.name.toLowerCase().includes(searchTerm) || 
+                e.provider.toLowerCase().includes(searchTerm) ||
+                e.model.toLowerCase().includes(searchTerm)
+            );
+
+            if (filtered.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="6">
+                            <div class="empty-state">
+                                <div class="empty-state-icon">🔌</div>
+                                <div class="empty-state-title">No endpoints found</div>
+                                <div class="empty-state-text">Create your first endpoint to get started</div>
+                                <button class="btn btn-primary" onclick="openCreateModal()">Create Endpoint</button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            tbody.innerHTML = filtered.map(endpoint => `
+                <tr>
+                    <td>
+                        <div class="endpoint-name">${endpoint.name}</div>
+                        <div class="endpoint-url">/gateway/v1/${endpoint.name}/chat/completions</div>
+                    </td>
+                    <td>
+                        <span class="provider-badge provider-${endpoint.provider}">${capitalizeFirst(endpoint.provider)}</span>
+                    </td>
+                    <td>${endpoint.model}</td>
+                    <td>
+                        <span class="status-badge status-${endpoint.status}">
+                            <span class="status-dot"></span>
+                            ${capitalizeFirst(endpoint.status)}
+                        </span>
+                    </td>
+                    <td>${endpoint.createdBy}</td>
+                    <td>
+                        <div class="action-buttons">
+                            <button class="btn-icon" onclick="editEndpoint(${endpoint.id})" title="Edit">✏️ Edit</button>
+                            <button class="btn-icon" onclick="testEndpoint(${endpoint.id})" title="Test">🧪 Test</button>
+                            <button class="btn-icon" onclick="deleteEndpoint(${endpoint.id})" title="Delete" style="color: #ff4d4f;">🗑️ Delete</button>
+                        </div>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function capitalizeFirst(str) {
+            return str.charAt(0).toUpperCase() + str.slice(1);
+        }
+
+        function openCreateModal() {
+            editingId = null;
+            document.getElementById('modalTitle').textContent = 'Create Endpoint';
+            document.getElementById('endpointForm').reset();
+            document.getElementById('endpointModal').classList.add('active');
+            updateProviderFields();
+        }
+
+        function closeModal() {
+            document.getElementById('endpointModal').classList.remove('active');
+            editingId = null;
+        }
+
+        function updateProviderFields() {
+            const provider = document.getElementById('provider').value;
+            const modelGroup = document.getElementById('modelGroup');
+            const apiKeyGroup = document.getElementById('apiKeyGroup');
+            const baseUrlGroup = document.getElementById('baseUrlGroup');
+            const regionGroup = document.getElementById('regionGroup');
+            const modelSelect = document.getElementById('model');
+
+            // Show/hide fields based on provider
+            if (provider) {
+                modelGroup.style.display = 'block';
+                apiKeyGroup.style.display = 'block';
+                baseUrlGroup.style.display = 'block';
+
+                // Populate model options
+                modelSelect.innerHTML = providerModels[provider].map(model => 
+                    `<option value="${model}">${model}</option>`
+                ).join('');
+
+                // Show region for AWS
+                regionGroup.style.display = provider === 'aws' ? 'block' : 'none';
+            } else {
+                modelGroup.style.display = 'none';
+                apiKeyGroup.style.display = 'none';
+                baseUrlGroup.style.display = 'none';
+                regionGroup.style.display = 'none';
+            }
+        }
+
+        function saveEndpoint() {
+            const name = document.getElementById('endpointName').value;
+            const provider = document.getElementById('provider').value;
+            const model = document.getElementById('model').value;
+            const apiKey = document.getElementById('apiKey').value;
+            const description = document.getElementById('description').value;
+            const status = document.getElementById('status').value;
+
+            if (!name || !provider || !model) {
+                alert('Please fill in all required fields');
+                return;
+            }
+
+            if (editingId) {
+                // Update existing
+                const endpoint = endpoints.find(e => e.id === editingId);
+                endpoint.name = name;
+                endpoint.provider = provider;
+                endpoint.model = model;
+                endpoint.description = description;
+                endpoint.status = status;
+                if (apiKey) endpoint.apiKey = apiKey;
+            } else {
+                // Create new
+                endpoints.push({
+                    id: Date.now(),
+                    name,
+                    provider,
+                    model,
+                    status,
+                    createdBy: 'current-user',
+                    description,
+                    apiKey
+                });
+            }
+
+            closeModal();
+            renderEndpoints();
+        }
+
+        function editEndpoint(id) {
+            editingId = id;
+            const endpoint = endpoints.find(e => e.id === id);
+            
+            document.getElementById('modalTitle').textContent = 'Edit Endpoint';
+            document.getElementById('endpointName').value = endpoint.name;
+            document.getElementById('provider').value = endpoint.provider;
+            document.getElementById('description').value = endpoint.description || '';
+            document.getElementById('status').value = endpoint.status;
+            
+            updateProviderFields();
+            document.getElementById('model').value = endpoint.model;
+            
+            document.getElementById('endpointModal').classList.add('active');
+        }
+
+        function deleteEndpoint(id) {
+            if (confirm('Are you sure you want to delete this endpoint?')) {
+                endpoints = endpoints.filter(e => e.id !== id);
+                renderEndpoints();
+            }
+        }
+
+        function testEndpoint(id) {
+            const endpoint = endpoints.find(e => e.id === id);
+            alert(`Testing endpoint: ${endpoint.name}\n\nThis would send a test request to verify the configuration.`);
+        }
+
+        // Event listeners
+        document.getElementById('searchBox').addEventListener('input', renderEndpoints);
+
+        // Initial render
+        renderEndpoints();
+    </script>
+</body>
+</html>
+
