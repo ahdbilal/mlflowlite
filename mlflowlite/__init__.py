@@ -21,6 +21,7 @@ from mlflowlite.litellm_style_api import (
     print_suggestions,
     get_available_models,
     print_response,
+    optimize_prompt,
 )
 
 # Advanced routing
@@ -77,6 +78,7 @@ __all__ = [
     "print_suggestions",
     "get_available_models",
     "print_response",
+    "optimize_prompt",
     # Advanced routing
     "smart_query",
     "create_ab_test",

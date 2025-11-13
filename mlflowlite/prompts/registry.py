@@ -292,11 +292,17 @@ Think step-by-step and explain your reasoning when using tools."""
                     # If Unity Catalog registration fails, let it fall through to local storage
                     raise e
             else:
-                # Local: Use legacy mlflow.register_prompt API
+                # Local: Use mlflow.genai API if available, otherwise legacy API
                 try:
+                    # Try new mlflow.genai API first (MLflow 2.21+)
+                    if hasattr(mlflow_lib, 'genai'):
+                        register_fn = mlflow_lib.genai.register_prompt
+                    else:
+                        register_fn = mlflow_lib.register_prompt
+                    
                     safe_metadata = {k.replace('-', '_').replace('.', '_'): v 
                                    for k, v in (metadata or {}).items()}
-                    registered_prompt = mlflow_lib.register_prompt(
+                    registered_prompt = register_fn(
                         name=self.prompt_name,
                         template=full_template,
                         commit_message=commit_msg,
@@ -308,39 +314,54 @@ Think step-by-step and explain your reasoning when using tools."""
                     )
                 except TypeError:
                     # Fall back to basic API without optional parameters
-                    registered_prompt = mlflow_lib.register_prompt(
+                    if hasattr(mlflow_lib, 'genai'):
+                        register_fn = mlflow_lib.genai.register_prompt
+                    else:
+                        register_fn = mlflow_lib.register_prompt
+                    registered_prompt = register_fn(
                         name=self.prompt_name,
                         template=full_template,
                     )
             
             self.current_version = registered_prompt.version
-            print(f"✅ Registered prompt '{self.prompt_name}' version {self.current_version} in MLflow")
-            print(f"   View in MLflow UI: Prompts tab → {self.prompt_name}")
+            version_num = registered_prompt.version
+            print(f"✅ Registered prompt '{self.prompt_name}' version {version_num} in MLflow")
+            print(f"   🔗 http://localhost:5000/#/prompts/{self.prompt_name}")
+            
+            # Create version object for return value
+            new_version = PromptVersion(
+                version=version_num,
+                system_prompt=system_prompt,
+                user_template=user_template,
+                examples=examples or [],
+                metadata=metadata or {},
+                created_at=datetime.now().isoformat(),
+            )
+            
+            return new_version
             
         except Exception as e:
             print(f"⚠️  MLflow registration failed: {e}")
             print("📝 Using local storage as fallback...")
-            # Continue with local storage
-        
-        # Create version object (for backwards compatibility and local storage)
-        new_version = PromptVersion(
-            version=version_num,
-            system_prompt=system_prompt,
-            user_template=user_template,
-            examples=examples or [],
-            metadata=metadata or {},
-            created_at=datetime.now().isoformat(),
-        )
-        
-        # Always add to local storage
-        self.versions.append(new_version)
-        self.current_version = version_num
-        self._save_registry()
-        
-        print(f"✅ Saved prompt version {version_num} (local storage)")
-        print(f"   Agent: {self.agent_name}, Versions: {len(self.versions)}")
-        
-        return new_version
+            
+            # Fallback: Create version object and save locally
+            new_version = PromptVersion(
+                version=version_num,
+                system_prompt=system_prompt,
+                user_template=user_template,
+                examples=examples or [],
+                metadata=metadata or {},
+                created_at=datetime.now().isoformat(),
+            )
+            
+            self.versions.append(new_version)
+            self.current_version = version_num
+            self._save_registry()
+            
+            print(f"✅ Saved prompt version {version_num} (local storage)")
+            print(f"   Agent: {self.agent_name}, Versions: {len(self.versions)}")
+            
+            return new_version
     
     def get_version(self, version: int) -> Optional[PromptVersion]:
         """

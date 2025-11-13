@@ -1,23 +1,17 @@
-# Core Dependencies
-mlflow>=3.5.0  # Required for mlflow.genai.optimize_prompts()
-litellm>=1.30.0
-pydantic>=2.0.0
-python-dotenv>=1.0.0
+# Core Dependencies (Essential)
+mlflow>=3.5.0              # MLflow tracking & optimization
+litellm>=1.30.0            # Multi-provider LLM gateway
+pydantic>=2.0.0            # Data validation
+python-dotenv>=1.0.0       # Environment variables
+requests>=2.31.0           # HTTP requests
+tenacity>=8.2.0            # Retry logic
 
-# LLM Providers
-openai>=1.12.0
-anthropic>=0.18.0
-google-generativeai>=0.3.0
+# LLM Providers (Essential - used in demo)
+anthropic>=0.18.0          # Anthropic Claude models
 
-# DSPy for Prompt Optimization
-dspy-ai>=2.4.0
+# Optional Providers (uncomment if needed)
+# openai>=1.12.0           # OpenAI GPT models
+# google-generativeai>=0.3.0  # Google Gemini models
 
-# Tools and Utilities
-requests>=2.31.0
-tenacity>=8.2.0
-tiktoken>=0.5.0
-
-# Optional Dependencies
-# databricks-ai-gateway>=0.1.0  # For managed gateway mode
-
-
+# Optional Utilities (uncomment if needed)
+# tiktoken>=0.5.0          # Token counting for OpenAI models

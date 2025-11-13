@@ -204,15 +204,41 @@ ml.set_max_retries(3)                        # default retries
 ml.set_fallback_models(['gpt-4o', 'gpt-3.5-turbo'])  # default fallbacks
 ```
 
-### Response Object
+### Response Object (OpenAI-Compatible)
+
+The Response object is fully compatible with OpenAI's API format, making it a drop-in replacement:
 
 ```python
-response.content      # Response text
-response.latency      # Seconds
-response.cost         # USD
-response.usage        # Token counts dict
+# OpenAI-compatible access
+response.id                              # Unique completion ID
+response.object                          # "chat.completion"
+response.created                         # Unix timestamp
+response.model                           # Model used
+response.choices[0]["message"]["content"]  # Response text (OpenAI format)
+response.usage["total_tokens"]           # Token usage (OpenAI format)
+
+# Convenience attributes (same data, easier access)
+response.content      # Direct access to response text
+response.latency      # Response time in seconds
+response.cost         # Estimated cost in USD
 response.scores       # Quality scores dict
 response.trace_id     # MLflow trace ID
+
+# Convert to OpenAI JSON format
+response.to_dict()    # Full OpenAI-compatible dictionary
+```
+
+**Drop-in replacement example:**
+```python
+# Code expecting OpenAI SDK format works unchanged!
+def process_openai_response(response):
+    content = response.choices[0]["message"]["content"]
+    tokens = response.usage["total_tokens"]
+    return {"content": content, "tokens": tokens}
+
+# Works with mlflowlite responses!
+response = ml.completion(model="gpt-4", messages=[...])
+result = process_openai_response(response)  # ✅ Works!
 ```
 
 ### Agent Class
@@ -250,6 +276,7 @@ mlflow ui
 - **`MLflowlite_Demo.ipynb`** - Start here! Interactive demo with all features
 - `complete_demo.py` - Full Python demo
 - `examples/quick_start.py` - Minimal example
+- `examples/openai_compatibility_demo.py` - OpenAI API format compatibility
 - `examples/reliability_demo.py` - Retry, timeout, fallbacks
 - `examples/routing_demo.py` - Smart routing & A/B testing
 - `examples/evaluation_demo.py` - GenAI evaluation with scorers

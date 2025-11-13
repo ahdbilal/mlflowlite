@@ -21,28 +21,101 @@ Usage:
 """
 
 from typing import List, Dict, Any, Optional, Union, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import time
+import uuid
+import logging
+import warnings
+import os
+import sys
+
+# Suppress verbose logs BEFORE importing mlflow
+# Set root logger level first
+logging.basicConfig(level=logging.ERROR, format='%(message)s')
+
+# Suppress all MLflow-related loggers
+for logger_name in [
+    "mlflow", 
+    "alembic", 
+    "alembic.runtime",
+    "alembic.runtime.migration", 
+    "mlflow.store",
+    "mlflow.store.db",
+    "mlflow.store.db.utils",
+    "mlflow.models",
+    "mlflow.models.evaluation",
+    "mlflow.models.evaluation.utils.trace",
+    "mlflow.genai",
+    "mlflow.genai.utils.data_validation",
+    "mlflow.tracing.fluent"
+]:
+    logger = logging.getLogger(logger_name)
+    logger.setLevel(logging.CRITICAL)  # Even higher than ERROR
+    logger.propagate = False
+    logger.disabled = True  # Completely disable
+
+# Suppress MLflow warnings
+warnings.filterwarnings("ignore", category=FutureWarning, module="mlflow")
+warnings.filterwarnings("ignore", category=UserWarning, module="mlflow")
+warnings.filterwarnings("ignore", message="Failed to determine whether UCVolumeDatasetSource")
+warnings.filterwarnings("ignore", message="The specified dataset source can be interpreted")
+
+# Set environment variable to skip trace validation
+os.environ["MLFLOW_GENAI_EVAL_SKIP_TRACE_VALIDATION"] = "True"
+
+# Disable alembic logging at environment level
+os.environ["ALEMBIC_CONFIG"] = "null"
+
 import mlflow
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from mlflowlite.llm.providers import get_provider
 from mlflowlite.llm.base import Message, MessageRole, LLMResponse
 
+# Configure MLflow on module import to use SQLite backend
+_tracking_uri = mlflow.get_tracking_uri()
+if _tracking_uri.startswith("file://") or not (
+    _tracking_uri.startswith("sqlite://") or 
+    _tracking_uri.startswith("postgresql://") or 
+    _tracking_uri.startswith("mysql://")
+):
+    mlflow.set_tracking_uri("sqlite:///mlflow.db")
+
 
 @dataclass
 class Response:
     """
-    Response object (similar to LiteLLM's response).
+    Response object compatible with OpenAI's API format.
     
-    Attributes:
-        content: The response text
+    Drop-in replacement for OpenAI/LiteLLM responses with MLflow enhancements.
+    
+    OpenAI-compatible attributes:
+        id: Unique completion ID
+        object: "chat.completion"
+        created: Unix timestamp
         model: Model used
+        choices: List of completion choices (OpenAI format)
         usage: Token usage statistics
+        
+    MLflow enhancements:
+        content: Direct access to response text (convenience)
         latency: Response time in seconds
         cost: Estimated cost in USD
         trace_id: MLflow trace ID
         metadata: Additional metadata
+        scores: Evaluation scores
+        
+    Usage:
+        >>> response = completion(model="gpt-4", messages=[...])
+        >>> 
+        >>> # OpenAI-compatible access:
+        >>> print(response.choices[0].message.content)
+        >>> print(response.usage["total_tokens"])
+        >>> 
+        >>> # Convenience access:
+        >>> print(response.content)
+        >>> print(response.cost)
     """
+    # Core response data
     content: str
     model: str
     usage: Dict[str, int]
@@ -51,17 +124,100 @@ class Response:
     trace_id: str
     metadata: Dict[str, Any]
     
+    # OpenAI-compatible fields
+    id: str = field(default_factory=lambda: f"chatcmpl-{uuid.uuid4().hex[:24]}")
+    object: str = "chat.completion"
+    created: int = field(default_factory=lambda: int(time.time()))
+    
+    # Internal fields
+    _finish_reason: str = "stop"
+    _role: str = "assistant"
+    
     # Evaluation scores (auto-calculated)
     scores: Optional[Dict[str, float]] = None
     # MLflow tracking info
     experiment_id: Optional[str] = None
     run_id: Optional[str] = None
     
+    @property
+    def choices(self) -> List[Dict[str, Any]]:
+        """
+        OpenAI-compatible choices format.
+        
+        Returns list in format:
+        [{
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": "..."
+            },
+            "finish_reason": "stop"
+        }]
+        """
+        return [{
+            "index": 0,
+            "message": {
+                "role": self._role,
+                "content": self.content
+            },
+            "finish_reason": self._finish_reason
+        }]
+    
+    @property
+    def trace_url(self) -> Optional[str]:
+        """
+        Get MLflow UI URL for this trace.
+        
+        Returns:
+            Full URL to view trace in MLflow UI, or None if not available
+        """
+        if not self.trace_id or self.trace_id in ["no_trace", "no_run", "no_id"]:
+            return None
+        
+        if not self.experiment_id:
+            return None
+        
+        # Default to localhost:5000 (standard MLflow UI)
+        base_url = "http://localhost:5000"
+        
+        # Check if trace ID starts with "tr-" (actual trace) or is a run ID
+        if self.trace_id.startswith("tr-"):
+            # Direct trace link (MLflow 2.8+)
+            return f"{base_url}/#/experiments/{self.experiment_id}/traces/{self.trace_id}"
+        else:
+            # Fallback to run link
+            return f"{base_url}/#/experiments/{self.experiment_id}/runs/{self.trace_id}"
+    
     def __str__(self) -> str:
         return self.content
     
     def __repr__(self) -> str:
-        return f"Response(model={self.model!r}, tokens={self.usage.get('total_tokens', 0)}, cost=${self.cost:.4f})"
+        trace_info = f", trace={self.trace_url}" if self.trace_url else ""
+        return f"Response(model={self.model!r}, tokens={self.usage.get('total_tokens', 0)}, cost=${self.cost:.4f}{trace_info})"
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        Convert to OpenAI-compatible dictionary format.
+        
+        This allows the response to be serialized to JSON in OpenAI format.
+        """
+        return {
+            "id": self.id,
+            "object": self.object,
+            "created": self.created,
+            "model": self.model,
+            "choices": self.choices,
+            "usage": self.usage,
+            # MLflow extensions (optional)
+            "mlflow": {
+                "trace_id": self.trace_id,
+                "latency": self.latency,
+                "cost": self.cost,
+                "experiment_id": self.experiment_id,
+                "run_id": self.run_id,
+                "scores": self.scores,
+            }
+        }
     
     def get_mlflow_links(self, tracking_uri: str = "http://localhost:5000") -> Dict[str, str]:
         """Get MLflow UI links for this response."""
@@ -96,6 +252,46 @@ _default_timeout = 60.0  # seconds
 _default_max_retries = 3
 _default_fallback_models = None
 _experiment_name = None  # Custom experiment name
+_mlflow_initialized = False  # Track if MLflow has been auto-configured
+
+
+def _auto_configure_mlflow():
+    """
+    Automatically configure MLflow tracking on first use.
+    Sets up tracking URI, default experiment, and enables tracing.
+    """
+    global _mlflow_initialized, _mlflow_enabled
+    
+    if _mlflow_initialized:
+        return
+    
+    try:
+        import mlflow
+        
+        # Auto-configure tracking URI if not explicitly set to a database
+        current_uri = mlflow.get_tracking_uri()
+        # Check if using file-based backend (default) or not using SQLite
+        if (current_uri.startswith("file://") or 
+            not current_uri.startswith("sqlite://") and 
+            not current_uri.startswith("postgresql://") and
+            not current_uri.startswith("mysql://")):
+            # Switch to SQLite backend
+            mlflow.set_tracking_uri("sqlite:///mlflow.db")
+        
+        # Set default experiment
+        if _experiment_name:
+            mlflow.set_experiment(_experiment_name)
+        else:
+            # Use a default experiment
+            mlflow.set_experiment("mlflowlite")
+        
+        # Enable tracing
+        _mlflow_enabled = True
+        
+        _mlflow_initialized = True
+    except Exception:
+        # If MLflow setup fails, continue without it
+        pass
 
 
 def _get_experiment_name() -> str:
@@ -147,14 +343,14 @@ def _get_experiment_name() -> str:
             else:
                 return "/Shared/llm_workspace"
         else:
-            # Local or other environments
-            return "llm_workspace"
+            # Local or other environments - return mlflowlite by default
+            return "mlflowlite"
     except Exception as e:
         # If detection fails, use safe default for Databricks
         import os
         if 'DATABRICKS_RUNTIME_VERSION' in os.environ:
             return "/Shared/llm_workspace"
-        return "llm_workspace"
+        return "mlflowlite"
 
 
 def set_experiment_name(name: str):
@@ -370,8 +566,48 @@ def _execute_completion(
             for msg in messages
         ]
         
-        # Call LLM within a span - also set trace-level inputs/outputs
-        llm_response = provider.complete(message_objects, tools=tools)
+        # Call LLM within a trace span
+        active_span = None
+        llm_span = None
+        if _mlflow_enabled:
+            try:
+                llm_span = mlflow.start_span(name=f"llm_call", span_type="LLM")
+                llm_span.__enter__()
+                active_span = llm_span
+                
+                # Set inputs
+                llm_span.set_inputs({
+                    "messages": messages,
+                    "model": model,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens
+                })
+                # Set attributes for better UI display
+                llm_span.set_attributes({
+                    "mlflow.traceRequestId": llm_span.request_id if hasattr(llm_span, 'request_id') else None,
+                    "mlflow.spanType": "LLM",
+                    "model": model
+                })
+                
+                # Make LLM call
+                llm_response = provider.complete(message_objects, tools=tools)
+                
+                # Set outputs
+                llm_span.set_outputs({
+                    "response": llm_response.content,
+                    "usage": llm_response.usage
+                })
+            except Exception as e:
+                # If span creation fails, call without tracing
+                if llm_span:
+                    try:
+                        llm_span.__exit__(None, None, None)
+                    except:
+                        pass
+                    llm_span = None
+                llm_response = provider.complete(message_objects, tools=tools)
+        else:
+            llm_response = provider.complete(message_objects, tools=tools)
         
         # Calculate metrics
         latency = time.time() - start_time
@@ -382,61 +618,51 @@ def _execute_completion(
         cost = _estimate_cost(model, prompt_tokens, completion_tokens)
         
         # Set trace-level inputs/outputs (this makes them visible in Traces UI)
-        if _mlflow_enabled:
+        if _mlflow_enabled and llm_span:
             try:
-                # Try to get active trace (MLflow 2.8+)
-                if hasattr(mlflow, 'last_active_trace'):
-                    active_trace = mlflow.last_active_trace()
-                    if active_trace:
-                        # Format messages for display
-                        formatted_messages = "\n\n".join([
-                            f"**{msg['role'].upper()}:**\n{msg['content']}" 
-                            for msg in messages
-                        ])
-                        
-                        active_trace.set_inputs({
-                            "messages": messages,
-                            "formatted_prompt": formatted_messages,
-                            "model": model,
-                            "temperature": temperature,
-                            "max_tokens": max_tokens
-                        })
-                        
-                        active_trace.set_outputs({
-                            "response": llm_response.content,
-                            "finish_reason": llm_response.finish_reason,
-                            "total_tokens": total_tokens,
-                            "cost_usd": cost
-                        })
-                        
-                        trace_attrs = {
-                            "model": model,
-                            "provider": provider.provider_name,
-                            "latency_seconds": latency,
-                            "prompt_tokens": prompt_tokens,
-                            "completion_tokens": completion_tokens
-                        }
-                        
-                        # 🔗 Add prompt linkage to trace attributes
-                        if "prompt_name" in prompt_metadata:
-                            trace_attrs["prompt_name"] = prompt_metadata["prompt_name"]
-                        if "prompt_version" in prompt_metadata:
-                            trace_attrs["prompt_version"] = prompt_metadata["prompt_version"]
-                        if "prompt_registry_name" in prompt_metadata:
-                            trace_attrs["prompt_registry_name"] = prompt_metadata["prompt_registry_name"]
-                            # Add MLflow-specific prompt linkage attributes
-                            trace_attrs["mlflow.promptName"] = prompt_metadata["prompt_registry_name"]
-                            trace_attrs["mlflow.promptVersion"] = str(prompt_metadata["prompt_version"])
-                        
-                        active_trace.set_attributes(trace_attrs)
-                        
-                        # Also set as trace tags for better MLflow UI integration
-                        if "prompt_registry_name" in prompt_metadata:
-                            try:
-                                active_trace.set_tag("mlflow.promptName", prompt_metadata["prompt_registry_name"])
-                                active_trace.set_tag("mlflow.promptVersion", str(prompt_metadata["prompt_version"]))
-                            except:
-                                pass
+                # Update trace with summary information
+                from mlflow.tracing.fluent import update_current_trace
+                
+                # Format messages for display
+                formatted_messages = "\n\n".join([
+                    f"**{msg['role'].upper()}:**\n{msg['content'][:200]}" 
+                    for msg in messages
+                ])
+                
+                # Set request and response at trace level
+                update_current_trace(
+                    request_metadata={
+                        "model": model,
+                        "temperature": temperature,
+                        "max_tokens": max_tokens,
+                        "messages": formatted_messages
+                    },
+                    response_metadata={
+                        "total_tokens": total_tokens,
+                        "cost": cost,
+                        "finish_reason": llm_response.finish_reason
+                    }
+                )
+                
+                # Set trace attributes
+                trace_attrs = {
+                    "model": model,
+                    "provider": provider.provider_name,
+                    "latency_seconds": latency,
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens
+                }
+                
+                # 🔗 Add prompt linkage to trace attributes
+                if "prompt_name" in prompt_metadata:
+                    trace_attrs["prompt_name"] = prompt_metadata["prompt_name"]
+                if "prompt_version" in prompt_metadata:
+                    trace_attrs["prompt_version"] = prompt_metadata["prompt_version"]
+                if "prompt_registry_name" in prompt_metadata:
+                    trace_attrs["prompt_registry_name"] = prompt_metadata["prompt_registry_name"]
+                    # Add MLflow-specific prompt linkage attributes
+                    trace_attrs["mlflow.promptName"] = prompt_metadata["prompt_registry_name"]
+                    trace_attrs["mlflow.promptVersion"] = str(prompt_metadata["prompt_version"])
             except Exception as e:
                 # If trace operations fail, continue anyway (older MLflow versions)
                 pass
@@ -449,17 +675,12 @@ def _execute_completion(
                 tokens=total_tokens,
             )
             
-            # Add scores as a proper evaluation span with inputs/outputs
-            if _mlflow_enabled and scores:
+            # Add scores to the LLM span (not as a separate span)
+            if _mlflow_enabled and scores and llm_span:
                 try:
-                    with mlflow.start_span(name="evaluation", span_type="UNKNOWN") as eval_span:
-                        eval_span.set_inputs({
-                            "response_text": llm_response.content[:200],
-                            "latency": latency,
-                            "tokens": total_tokens
-                        })
-                        eval_span.set_outputs(scores)
-                        eval_span.set_attributes(scores)
+                    # Add evaluation scores as attributes to the existing LLM span
+                    eval_attrs = {f"eval.{k}": v for k, v in scores.items()}
+                    llm_span.set_attributes(eval_attrs)
                 except Exception:
                     pass
         
@@ -564,7 +785,14 @@ def _execute_completion(
         if platform.system() != 'Windows' and timeout > 0:
             signal.alarm(0)
         
-        # End the run
+        # Close the LLM span first
+        if _mlflow_enabled and llm_span:
+            try:
+                llm_span.__exit__(None, None, None)
+            except Exception:
+                pass
+        
+        # Then end the run
         if _mlflow_enabled and run_context:
             try:
                 run_context.__exit__(None, None, None)
@@ -574,7 +802,7 @@ def _execute_completion(
 
 def completion(
     model: str,
-    messages: List[Dict[str, str]],
+    messages: Optional[List[Dict[str, str]]] = None,
     temperature: float = 0.7,
     max_tokens: Optional[int] = None,
     tools: Optional[List[Dict[str, Any]]] = None,
@@ -583,6 +811,9 @@ def completion(
     timeout: Optional[float] = None,
     max_retries: Optional[int] = None,
     fallback_models: Optional[List[str]] = None,
+    prompt_id: Optional[str] = None,
+    prompt_template: Optional[str] = None,
+    prompt_variables: Optional[Dict[str, str]] = None,
     **kwargs
 ) -> Response:
     """
@@ -593,7 +824,7 @@ def completion(
     
     Args:
         model: Model name (e.g., "claude-3-5-sonnet", "gpt-4o")
-        messages: List of message dicts with "role" and "content"
+        messages: List of message dicts with "role" and "content" (ignored if prompt_id is provided)
         temperature: Sampling temperature (0.0 to 1.0)
         max_tokens: Maximum tokens in response
         tools: Tool definitions (OpenAI format)
@@ -602,6 +833,9 @@ def completion(
         timeout: Request timeout in seconds (default: 60)
         max_retries: Number of retry attempts (default: 3)
         fallback_models: List of fallback models if primary fails
+        prompt_id: Prompt name in MLflow registry (auto-registers if prompt_template provided)
+        prompt_template: Template with {{variables}} (auto-registers to prompt_id if provided)
+        prompt_variables: Variables to fill in prompt template (e.g., {"text": "value"})
         **kwargs: Additional provider-specific parameters
     
     Returns:
@@ -616,6 +850,21 @@ def completion(
         ...     messages=[{"role": "user", "content": "Hello!"}]
         ... )
         >>> 
+        >>> # Inline prompt registration + use (one call!)
+        >>> response = ml.completion(
+        ...     model="claude-3-5-sonnet",
+        ...     prompt_id="sentiment",
+        ...     prompt_template="Classify sentiment: {{text}}",
+        ...     prompt_variables={"text": "Amazing!"}
+        ... )
+        >>> 
+        >>> # Use existing registered prompt
+        >>> response = ml.completion(
+        ...     model="claude-3-5-sonnet",
+        ...     prompt_id="sentiment",
+        ...     prompt_variables={"text": "Great!"}
+        ... )
+        >>> 
         >>> # With reliability features
         >>> response = ml.completion(
         ...     model="claude-3-5-sonnet",
@@ -625,6 +874,55 @@ def completion(
         ...     fallback_models=["gpt-4o", "gpt-3.5-turbo"]
         ... )
     """
+    # Auto-configure MLflow tracking on first use
+    _auto_configure_mlflow()
+    
+    # Handle prompt_id with inline registration
+    if prompt_id:
+        from mlflowlite import load_prompt
+        from mlflowlite.prompts.registry import PromptRegistry
+        
+        # If prompt_template provided, register it (if not already registered or update)
+        if prompt_template:
+            try:
+                registry = PromptRegistry(prompt_id)
+                registry.add_version(
+                    system_prompt=prompt_template,
+                    user_template=prompt_template,
+                    metadata={"auto_registered": True, "model": model}
+                )
+            except Exception:
+                # If registration fails (e.g., already exists), continue
+                pass
+        
+        # Load prompt from registry
+        try:
+            prompt_template_str = load_prompt(prompt_id)
+        except Exception:
+            # If load fails and we have a template, use it directly
+            if prompt_template:
+                prompt_template_str = prompt_template
+            else:
+                raise ValueError(f"Prompt '{prompt_id}' not found in registry and no prompt_template provided")
+        
+        # Fill in variables
+        filled_prompt = prompt_template_str
+        if prompt_variables:
+            for key, value in prompt_variables.items():
+                filled_prompt = filled_prompt.replace(f"{{{{{key}}}}}", value)
+        
+        # Override messages with filled prompt
+        messages = [{"role": "user", "content": filled_prompt}]
+        
+        # Add prompt metadata for tracking
+        kwargs["prompt_registry_name"] = prompt_id
+        kwargs["prompt_name"] = prompt_id
+        kwargs["prompt_version"] = "latest"
+    
+    # Ensure messages is provided
+    if not messages:
+        raise ValueError("Either 'messages' or 'prompt_id' must be provided")
+    
     fallback = fallback_models or _default_fallback_models
     
     return _completion_with_reliability(
@@ -981,6 +1279,176 @@ def get_available_models() -> Dict[str, List[str]]:
     }
 
 
+def optimize_prompt(
+    prompt_template: str,
+    dataset: Any,
+    model_from: str,
+    model_to: str,
+    prompt_id: Optional[str] = None,
+    max_iterations: int = 5,
+    save_optimized: bool = True,
+    **kwargs
+) -> str:
+    """
+    Optimize a prompt for migration from expensive to cheap model.
+    
+    Simple API that handles all MLflow complexity internally.
+    Uses GEPA (Generate, Evaluate, Profile, Alter) algorithm.
+    
+    Args:
+        prompt_template: Template with {{variables}} to optimize
+        dataset: DataFrame with 'inputs' and 'outputs' columns
+        model_from: Expensive model to migrate from (e.g., "claude-sonnet-4-5-20250929")
+        model_to: Cheap model to migrate to (e.g., "claude-haiku-4-5-20251001")
+        prompt_id: Name for prompt (auto-generated if not provided)
+        max_iterations: Target number of optimization iterations (default: 5)
+                       Note: GEPA evaluates multiple times per iteration, so actual
+                       iterations may be less if budget is exhausted
+        save_optimized: Auto-save optimized prompt (default: True)
+        **kwargs: Additional options
+    
+    Returns:
+        Optimized prompt template string
+    
+    Example:
+        >>> optimized = mla.optimize_prompt(
+        ...     prompt_template="Classify: {{text}}",
+        ...     dataset=dataset_df,
+        ...     model_from="claude-sonnet-4-5-20250929",
+        ...     model_to="claude-haiku-4-5-20251001",
+        ...     max_iterations=3
+        ... )
+        >>> print(optimized)
+    """
+    import mlflow
+    from mlflow import MlflowClient
+    from mlflow.genai.optimize import GepaPromptOptimizer
+    from mlflow.genai.scorers import Equivalence
+    
+    # Generate prompt ID if not provided
+    if not prompt_id:
+        import hashlib
+        prompt_id = f"prompt_{hashlib.md5(prompt_template.encode()).hexdigest()[:8]}"
+    
+    print(f"🔄 Optimizing prompt for migration")
+    print(f"   From: {model_from}")
+    print(f"   To:   {model_to}")
+    print(f"   Iterations: {max_iterations}\n")
+    
+    # Setup MLflow
+    mlflow.set_tracking_uri("sqlite:///mlflow.db")
+    mlflow.set_experiment("mlflowlite")
+    
+    client = MlflowClient()
+    
+    # Register base prompt
+    try:
+        client.create_prompt(prompt_id)
+    except:
+        pass
+    
+    try:
+        pv = client.create_prompt_version(prompt_id, prompt_template)
+        version = pv.version
+    except:
+        versions = client.search_prompt_versions(f"name='{prompt_id}'")
+        version = max(int(v.version) for v in versions) if versions else 1
+    
+    prompt_uri = f"prompts:/{prompt_id}/{version}"
+    registered_prompt = mlflow.genai.load_prompt(prompt_uri)
+    
+    # Helper to extract simple output
+    def extract_output(text):
+        """Extract simple label from verbose output"""
+        t = text.lower()
+        # Try common classification labels
+        for label in ["positive", "negative", "neutral", "yes", "no", "true", "false"]:
+            if label in t:
+                return label
+        return t.strip()
+    
+    # Create predict function
+    @mlflow.trace
+    def predict_fn(**inputs) -> str:
+        """Prediction function for optimization"""
+        # Get the first input value (typically 'text' or similar)
+        input_value = list(inputs.values())[0] if inputs else ""
+        
+        formatted = registered_prompt.format(**inputs)
+        result = completion(
+            model=model_to,
+            messages=[{"role": "user", "content": formatted}]
+        )
+        return extract_output(result.choices[0]['message']['content'])
+    
+    # Run optimization
+    try:
+        # Convert model_from to anthropic:// format for optimizer
+        reflection_model = f"anthropic:/{model_from}" if not model_from.startswith("anthropic:") else model_from
+        scorer_model = reflection_model
+        
+        # GEPA evaluates each iteration multiple times:
+        # - Baseline evaluation
+        # - Proposed prompt evaluation (subsample)
+        # - Proposed prompt evaluation (full dataset if improvement)
+        # So we need more metric_calls than iterations
+        # Formula: max_metric_calls = max_iterations * 3 (to ensure we get the iterations)
+        metric_calls = max(max_iterations * 3, 10)
+        
+        print(f"   Running {max_iterations} optimization iterations...")
+        print(f"   (Total metric calls: {metric_calls})\n")
+        
+        result = mlflow.genai.optimize_prompts(
+            predict_fn=predict_fn,
+            train_data=dataset,
+            prompt_uris=[prompt_uri],
+            optimizer=GepaPromptOptimizer(
+                reflection_model=reflection_model,
+                max_metric_calls=metric_calls,
+                display_progress_bar=False  # Keep output clean
+            ),
+            scorers=[Equivalence(model=scorer_model)],
+            enable_tracking=True
+        )
+        
+        optimized_template = result.optimized_prompts[0].template
+        
+        print(f"\n✅ Optimization complete!")
+        print(f"\n{'='*70}")
+        print("Optimized Prompt:")
+        print('='*70)
+        print(optimized_template)
+        print('='*70)
+        
+        # Auto-save if requested
+        if save_optimized:
+            optimized_id = f"{prompt_id}_optimized"
+            print(f"\n💾 Saving as '{optimized_id}'...")
+            
+            # Get first input key for test call
+            if hasattr(dataset, 'iloc'):
+                test_inputs = dataset.iloc[0]['inputs']
+            else:
+                test_inputs = dataset[0]['inputs']
+            
+            completion(
+                model=model_to,
+                prompt_id=optimized_id,
+                prompt_template=optimized_template,
+                prompt_variables=test_inputs
+            )
+            print(f"✅ Saved! Use with prompt_id='{optimized_id}'")
+        
+        return optimized_template
+        
+    except KeyboardInterrupt:
+        print("\n⚠️  Optimization stopped manually")
+        return prompt_template
+    except Exception as e:
+        print(f"\n❌ Optimization failed: {e}")
+        return prompt_template
+
+
 # Helper to print response nicely
 def print_response(response: Response, show_metadata: bool = False, show_links: bool = True):
     """
@@ -1003,7 +1471,10 @@ def print_response(response: Response, show_metadata: bool = False, show_links: 
     
     if show_metadata:
         print(f"\nMetadata: {response.metadata}")
-        print(f"Trace ID: {response.trace_id}")
+        if response.trace_url:
+            print(f"Trace: {response.trace_url}")
+        else:
+            print(f"Trace ID: {response.trace_id}")
     
     # Show MLflow UI links
     if show_links:
