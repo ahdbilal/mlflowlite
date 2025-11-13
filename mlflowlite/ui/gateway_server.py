@@ -22,7 +22,7 @@ GATEWAY_UI_DIR = os.path.join(os.path.dirname(__file__), 'gateway')
 @app.route('/gateway/')
 def gateway_home():
     """Serve the Gateway UI"""
-    return send_from_directory(GATEWAY_UI_DIR, 'index.html')
+    return send_from_directory(GATEWAY_UI_DIR, 'index_enhanced.html')
 
 
 @app.route('/gateway/<path:filename>')

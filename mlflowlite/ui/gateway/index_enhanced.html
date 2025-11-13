@@ -1,0 +1,1088 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MLflow Gateway - Dashboard</title>
+    <link rel="shortcut icon" href="../../static-files/favicon.ico"/>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+            background: #f5f5f5;
+            color: #333;
+        }
+
+        /* MLflow-style header */
+        .mlflow-header {
+            background: #fff;
+            border-bottom: 1px solid #e0e0e0;
+            padding: 0;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+        }
+
+        .header-content {
+            display: flex;
+            align-items: center;
+            padding: 12px 24px;
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        .mlflow-logo {
+            font-size: 20px;
+            font-weight: 600;
+            color: #43C9ED;
+            margin-right: 40px;
+            text-decoration: none;
+        }
+
+        .nav-tabs {
+            display: flex;
+            gap: 8px;
+            flex: 1;
+        }
+
+        .nav-tab {
+            padding: 8px 16px;
+            border-radius: 4px;
+            text-decoration: none;
+            color: #666;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        .nav-tab:hover {
+            background: #f0f0f0;
+            color: #333;
+        }
+
+        .nav-tab.active {
+            background: #43C9ED;
+            color: white;
+        }
+
+        /* Main content */
+        .main-content {
+            max-width: 1600px;
+            margin: 80px auto 40px;
+            padding: 0 24px;
+        }
+
+        /* View selector */
+        .view-selector {
+            background: white;
+            padding: 16px 24px;
+            border-radius: 8px;
+            margin-bottom: 24px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            display: flex;
+            gap: 12px;
+        }
+
+        .view-btn {
+            padding: 8px 20px;
+            border: 1px solid #d0d0d0;
+            background: white;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        .view-btn:hover {
+            border-color: #43C9ED;
+            color: #43C9ED;
+        }
+
+        .view-btn.active {
+            background: #43C9ED;
+            color: white;
+            border-color: #43C9ED;
+        }
+
+        .view {
+            display: none;
+        }
+
+        .view.active {
+            display: block;
+        }
+
+        /* Dashboard styles */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .metric-card {
+            background: white;
+            padding: 24px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .metric-label {
+            font-size: 13px;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .metric-value {
+            font-size: 32px;
+            font-weight: 600;
+            color: #1a1a1a;
+            margin-bottom: 8px;
+        }
+
+        .metric-change {
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .metric-change.positive {
+            color: #52c41a;
+        }
+
+        .metric-change.negative {
+            color: #ff4d4f;
+        }
+
+        .chart-container {
+            background: white;
+            padding: 24px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .chart-title {
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .time-filter {
+            display: flex;
+            gap: 8px;
+        }
+
+        .time-btn {
+            padding: 6px 12px;
+            border: 1px solid #d0d0d0;
+            background: white;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .time-btn.active {
+            background: #43C9ED;
+            color: white;
+            border-color: #43C9ED;
+        }
+
+        /* Endpoints list */
+        .endpoints-card {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .endpoints-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .endpoints-table th {
+            background: #fafafa;
+            padding: 16px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 13px;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .endpoints-table td {
+            padding: 16px;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .endpoints-table tr:hover {
+            background: #fafafa;
+            cursor: pointer;
+        }
+
+        .endpoint-name {
+            font-weight: 500;
+            color: #1a1a1a;
+            font-size: 14px;
+        }
+
+        .endpoint-url {
+            color: #666;
+            font-size: 12px;
+            font-family: monospace;
+            margin-top: 4px;
+        }
+
+        .provider-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .provider-openai { background: #10a37f20; color: #10a37f; }
+        .provider-anthropic { background: #d4a27320; color: #b8860b; }
+        .provider-azure { background: #008ad720; color: #0078d4; }
+        .provider-google { background: #4285f420; color: #4285f4; }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .status-active { background: #52c41a20; color: #52c41a; }
+        .status-inactive { background: #ff4d4f20; color: #ff4d4f; }
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: currentColor;
+        }
+
+        /* Endpoint detail view */
+        .detail-header {
+            background: white;
+            padding: 24px;
+            border-radius: 8px;
+            margin-bottom: 24px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .detail-title-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .detail-title {
+            font-size: 24px;
+            font-weight: 600;
+        }
+
+        .detail-actions {
+            display: flex;
+            gap: 12px;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: #43C9ED;
+            color: white;
+        }
+
+        .btn-secondary {
+            background: #f0f0f0;
+            color: #333;
+            border: 1px solid #d0d0d0;
+        }
+
+        .detail-meta {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+        }
+
+        .meta-item {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .meta-label {
+            font-size: 12px;
+            color: #999;
+            text-transform: uppercase;
+        }
+
+        .meta-value {
+            font-size: 14px;
+            color: #333;
+            font-weight: 500;
+        }
+
+        .integration-links {
+            display: flex;
+            gap: 12px;
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid #f0f0f0;
+        }
+
+        .integration-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            background: #f5f5f5;
+            border-radius: 6px;
+            text-decoration: none;
+            color: #333;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+
+        .integration-link:hover {
+            background: #43C9ED;
+            color: white;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .real-time-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: #52c41a;
+        }
+
+        .live-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #52c41a;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        .team-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .team-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .team-name {
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .team-metrics {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+            font-size: 13px;
+        }
+
+        .team-metric {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .team-metric-value {
+            font-size: 20px;
+            font-weight: 600;
+            color: #43C9ED;
+        }
+
+        .back-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            background: #f0f0f0;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-bottom: 20px;
+            transition: all 0.2s;
+        }
+
+        .back-btn:hover {
+            background: #e0e0e0;
+        }
+    </style>
+</head>
+<body>
+    <!-- MLflow Header -->
+    <header class="mlflow-header">
+        <div class="header-content">
+            <a href="/" class="mlflow-logo">MLflow</a>
+            <nav class="nav-tabs">
+                <a href="/" class="nav-tab">Experiments</a>
+                <a href="/models" class="nav-tab">Models</a>
+                <a href="/prompts" class="nav-tab">Prompts</a>
+                <a href="#" class="nav-tab active">Gateway</a>
+            </nav>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <div class="main-content">
+        <!-- View Selector -->
+        <div class="view-selector">
+            <button class="view-btn active" onclick="switchView('dashboard')">📊 Dashboard</button>
+            <button class="view-btn" onclick="switchView('endpoints')">🔌 Endpoints</button>
+        </div>
+
+        <!-- Dashboard View -->
+        <div id="dashboardView" class="view active">
+            <h1 style="font-size: 28px; font-weight: 600; margin-bottom: 24px;">Gateway Overview</h1>
+            
+            <!-- Key Metrics -->
+            <div class="dashboard-grid">
+                <div class="metric-card">
+                    <div class="metric-label">Total Requests (24h)</div>
+                    <div class="metric-value">24,583</div>
+                    <div class="metric-change positive">
+                        ↑ 12.3% from yesterday
+                    </div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Active Endpoints</div>
+                    <div class="metric-value">12</div>
+                    <div class="metric-change">
+                        3 providers
+                    </div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Total Cost (24h)</div>
+                    <div class="metric-value">$142.67</div>
+                    <div class="metric-change positive">
+                        ↓ 8.4% from yesterday
+                    </div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Avg Latency</div>
+                    <div class="metric-value">1.2s</div>
+                    <div class="metric-change positive">
+                        ↓ 0.3s from yesterday
+                    </div>
+                </div>
+            </div>
+
+            <!-- Charts -->
+            <div class="chart-container">
+                <div class="chart-header">
+                    <div class="chart-title">Requests Over Time</div>
+                    <div class="time-filter">
+                        <button class="time-btn">1H</button>
+                        <button class="time-btn">6H</button>
+                        <button class="time-btn active">24H</button>
+                        <button class="time-btn">7D</button>
+                    </div>
+                </div>
+                <canvas id="requestsChart" height="80"></canvas>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                <div class="chart-container">
+                    <div class="chart-title" style="margin-bottom: 20px;">Cost by Provider</div>
+                    <canvas id="costChart" height="200"></canvas>
+                </div>
+                <div class="chart-container">
+                    <div class="chart-title" style="margin-bottom: 20px;">Latency Distribution</div>
+                    <canvas id="latencyChart" height="200"></canvas>
+                </div>
+            </div>
+
+            <!-- Team Usage -->
+            <h2 style="font-size: 20px; font-weight: 600; margin: 30px 0 20px;">Team Usage</h2>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 20px;">
+                <div class="team-card">
+                    <div class="team-header">
+                        <div class="team-name">ML Team</div>
+                        <span class="status-badge status-active">
+                            <span class="status-dot"></span>
+                            Active
+                        </span>
+                    </div>
+                    <div class="team-metrics">
+                        <div class="team-metric">
+                            <div>Requests</div>
+                            <div class="team-metric-value">12.4K</div>
+                        </div>
+                        <div class="team-metric">
+                            <div>Cost</div>
+                            <div class="team-metric-value">$82.50</div>
+                        </div>
+                        <div class="team-metric">
+                            <div>Endpoints</div>
+                            <div class="team-metric-value">5</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="team-card">
+                    <div class="team-header">
+                        <div class="team-name">Product Team</div>
+                        <span class="status-badge status-active">
+                            <span class="status-dot"></span>
+                            Active
+                        </span>
+                    </div>
+                    <div class="team-metrics">
+                        <div class="team-metric">
+                            <div>Requests</div>
+                            <div class="team-metric-value">8.2K</div>
+                        </div>
+                        <div class="team-metric">
+                            <div>Cost</div>
+                            <div class="team-metric-value">$42.17</div>
+                        </div>
+                        <div class="team-metric">
+                            <div>Endpoints</div>
+                            <div class="team-metric-value">4</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="team-card">
+                    <div class="team-header">
+                        <div class="team-name">Research Team</div>
+                        <span class="status-badge status-active">
+                            <span class="status-dot"></span>
+                            Active
+                        </span>
+                    </div>
+                    <div class="team-metrics">
+                        <div class="team-metric">
+                            <div>Requests</div>
+                            <div class="team-metric-value">4.0K</div>
+                        </div>
+                        <div class="team-metric">
+                            <div>Cost</div>
+                            <div class="team-metric-value">$18.00</div>
+                        </div>
+                        <div class="team-metric">
+                            <div>Endpoints</div>
+                            <div class="team-metric-value">3</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Endpoints View -->
+        <div id="endpointsView" class="view">
+            <div id="endpointsList">
+                <h1 style="font-size: 28px; font-weight: 600; margin-bottom: 24px;">Model Endpoints</h1>
+                
+                <div class="endpoints-card">
+                    <table class="endpoints-table">
+                        <thead>
+                            <tr>
+                                <th>Endpoint</th>
+                                <th>Provider</th>
+                                <th>Model</th>
+                                <th>Requests (24h)</th>
+                                <th>Avg Latency</th>
+                                <th>Cost (24h)</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="endpointsTableBody">
+                            <!-- Will be populated by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Endpoint Detail View -->
+            <div id="endpointDetail" style="display: none;">
+                <button class="back-btn" onclick="showEndpointsList()">← Back to Endpoints</button>
+                
+                <div class="detail-header">
+                    <div class="detail-title-row">
+                        <div class="detail-title" id="detailEndpointName"></div>
+                        <div class="detail-actions">
+                            <button class="btn btn-secondary">✏️ Edit</button>
+                            <button class="btn btn-primary">🧪 Test</button>
+                        </div>
+                    </div>
+                    
+                    <div class="detail-meta" id="detailMeta">
+                        <!-- Will be populated -->
+                    </div>
+
+                    <div class="integration-links">
+                        <a href="#" class="integration-link" id="tracesLink">
+                            📊 View Traces in MLflow
+                        </a>
+                        <a href="#" class="integration-link" id="promptsLink">
+                            📝 View Prompts Registry
+                        </a>
+                    </div>
+                </div>
+
+                <!-- Real-time Metrics -->
+                <div class="chart-container">
+                    <div class="chart-header">
+                        <div>
+                            <div class="chart-title">Real-Time Metrics</div>
+                            <div class="real-time-indicator">
+                                <span class="live-dot"></span>
+                                Live (updates every 5s)
+                            </div>
+                        </div>
+                        <div class="time-filter">
+                            <button class="time-btn">1H</button>
+                            <button class="time-btn active">6H</button>
+                            <button class="time-btn">24H</button>
+                        </div>
+                    </div>
+                    <canvas id="realtimeChart" height="80"></canvas>
+                </div>
+
+                <!-- Usage Metrics Grid -->
+                <div class="metrics-grid">
+                    <div class="metric-card">
+                        <div class="metric-label">Total Requests</div>
+                        <div class="metric-value" id="detailRequests">0</div>
+                        <div class="metric-change positive">
+                            ↑ 15.2% from last hour
+                        </div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Success Rate</div>
+                        <div class="metric-value" id="detailSuccessRate">99.8%</div>
+                        <div class="metric-change positive">
+                            ↑ 0.2% from average
+                        </div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">P95 Latency</div>
+                        <div class="metric-value" id="detailLatency">1.2s</div>
+                        <div class="metric-change positive">
+                            ↓ 0.1s from average
+                        </div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Total Cost</div>
+                        <div class="metric-value" id="detailCost">$0.00</div>
+                        <div class="metric-change">
+                            Last 24 hours
+                        </div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Avg Tokens/Request</div>
+                        <div class="metric-value" id="detailTokens">450</div>
+                        <div class="metric-change">
+                            Input: 320, Output: 130
+                        </div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Error Rate</div>
+                        <div class="metric-value" id="detailErrors">0.2%</div>
+                        <div class="metric-change negative">
+                            ↑ 3 errors in last hour
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Cost and Latency Charts -->
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <div class="chart-container">
+                        <div class="chart-title" style="margin-bottom: 20px;">Cost Over Time</div>
+                        <canvas id="detailCostChart" height="150"></canvas>
+                    </div>
+                    <div class="chart-container">
+                        <div class="chart-title" style="margin-bottom: 20px;">Latency Over Time</div>
+                        <canvas id="detailLatencyChart" height="150"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Mock data
+        const endpoints = [
+            {
+                id: 1,
+                name: 'prod-gpt4',
+                provider: 'openai',
+                model: 'gpt-4o',
+                status: 'active',
+                team: 'ML Team',
+                requests24h: 8450,
+                avgLatency: 1.4,
+                cost24h: 52.30,
+                successRate: 99.9,
+                p95Latency: 2.1,
+                avgTokens: 520,
+                errorRate: 0.1
+            },
+            {
+                id: 2,
+                name: 'dev-claude',
+                provider: 'anthropic',
+                model: 'claude-sonnet-4-5-20250929',
+                status: 'active',
+                team: 'Product Team',
+                requests24h: 6230,
+                avgLatency: 0.9,
+                cost24h: 38.50,
+                successRate: 99.8,
+                p95Latency: 1.5,
+                avgTokens: 420,
+                errorRate: 0.2
+            },
+            {
+                id: 3,
+                name: 'azure-gpt35',
+                provider: 'azure',
+                model: 'gpt-3.5-turbo',
+                status: 'active',
+                team: 'Research Team',
+                requests24h: 12400,
+                avgLatency: 0.7,
+                cost24h: 18.90,
+                successRate: 99.7,
+                p95Latency: 1.2,
+                avgTokens: 380,
+                errorRate: 0.3
+            },
+            {
+                id: 4,
+                name: 'prod-gemini',
+                provider: 'google',
+                model: 'gemini-1.5-pro',
+                status: 'active',
+                team: 'ML Team',
+                requests24h: 4250,
+                avgLatency: 1.1,
+                cost24h: 25.40,
+                successRate: 99.6,
+                p95Latency: 1.8,
+                avgTokens: 480,
+                errorRate: 0.4
+            }
+        ];
+
+        let currentEndpoint = null;
+
+        // View switching
+        function switchView(view) {
+            document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+            document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
+            
+            if (view === 'dashboard') {
+                document.getElementById('dashboardView').classList.add('active');
+                document.querySelectorAll('.view-btn')[0].classList.add('active');
+            } else {
+                document.getElementById('endpointsView').classList.add('active');
+                document.querySelectorAll('.view-btn')[1].classList.add('active');
+                showEndpointsList();
+            }
+        }
+
+        function showEndpointsList() {
+            document.getElementById('endpointsList').style.display = 'block';
+            document.getElementById('endpointDetail').style.display = 'none';
+            renderEndpointsList();
+        }
+
+        function showEndpointDetail(endpointId) {
+            currentEndpoint = endpoints.find(e => e.id === endpointId);
+            document.getElementById('endpointsList').style.display = 'none';
+            document.getElementById('endpointDetail').style.display = 'block';
+            renderEndpointDetail();
+        }
+
+        function renderEndpointsList() {
+            const tbody = document.getElementById('endpointsTableBody');
+            tbody.innerHTML = endpoints.map(e => `
+                <tr onclick="showEndpointDetail(${e.id})">
+                    <td>
+                        <div class="endpoint-name">${e.name}</div>
+                        <div class="endpoint-url">/gateway/v1/${e.name}/chat/completions</div>
+                    </td>
+                    <td><span class="provider-badge provider-${e.provider}">${capitalize(e.provider)}</span></td>
+                    <td>${e.model}</td>
+                    <td>${e.requests24h.toLocaleString()}</td>
+                    <td>${e.avgLatency.toFixed(1)}s</td>
+                    <td>$${e.cost24h.toFixed(2)}</td>
+                    <td>
+                        <span class="status-badge status-${e.status}">
+                            <span class="status-dot"></span>
+                            ${capitalize(e.status)}
+                        </span>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function renderEndpointDetail() {
+            const e = currentEndpoint;
+            document.getElementById('detailEndpointName').textContent = e.name;
+            
+            document.getElementById('detailMeta').innerHTML = `
+                <div class="meta-item">
+                    <div class="meta-label">Provider</div>
+                    <div class="meta-value"><span class="provider-badge provider-${e.provider}">${capitalize(e.provider)}</span></div>
+                </div>
+                <div class="meta-item">
+                    <div class="meta-label">Model</div>
+                    <div class="meta-value">${e.model}</div>
+                </div>
+                <div class="meta-item">
+                    <div class="meta-label">Team</div>
+                    <div class="meta-value">${e.team}</div>
+                </div>
+                <div class="meta-item">
+                    <div class="meta-label">Status</div>
+                    <div class="meta-value">
+                        <span class="status-badge status-${e.status}">
+                            <span class="status-dot"></span>
+                            ${capitalize(e.status)}
+                        </span>
+                    </div>
+                </div>
+            `;
+
+            // Update MLflow links
+            const experimentName = encodeURIComponent(`gateway_${e.name}`);
+            document.getElementById('tracesLink').href = `http://localhost:5000/#/experiments/search?searchInput=${experimentName}`;
+            document.getElementById('promptsLink').href = `http://localhost:5000/#/prompts?search=${e.name}`;
+
+            // Update metrics
+            document.getElementById('detailRequests').textContent = e.requests24h.toLocaleString();
+            document.getElementById('detailSuccessRate').textContent = e.successRate + '%';
+            document.getElementById('detailLatency').textContent = e.p95Latency.toFixed(1) + 's';
+            document.getElementById('detailCost').textContent = '$' + e.cost24h.toFixed(2);
+            document.getElementById('detailTokens').textContent = e.avgTokens;
+            document.getElementById('detailErrors').textContent = e.errorRate.toFixed(1) + '%';
+
+            // Render charts
+            renderDetailCharts();
+        }
+
+        function capitalize(str) {
+            return str.charAt(0).toUpperCase() + str.slice(1);
+        }
+
+        // Initialize dashboard charts
+        function initDashboardCharts() {
+            // Requests chart
+            const requestsCtx = document.getElementById('requestsChart').getContext('2d');
+            new Chart(requestsCtx, {
+                type: 'line',
+                data: {
+                    labels: Array.from({length: 24}, (_, i) => `${i}:00`),
+                    datasets: [{
+                        label: 'Requests',
+                        data: Array.from({length: 24}, () => Math.floor(Math.random() * 2000) + 800),
+                        borderColor: '#43C9ED',
+                        backgroundColor: '#43C9ED20',
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: '#f0f0f0' } },
+                        x: { grid: { display: false } }
+                    }
+                }
+            });
+
+            // Cost by provider
+            const costCtx = document.getElementById('costChart').getContext('2d');
+            new Chart(costCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['OpenAI', 'Anthropic', 'Azure', 'Google'],
+                    datasets: [{
+                        data: [52.30, 38.50, 18.90, 25.40],
+                        backgroundColor: ['#10a37f', '#d4a273', '#0078d4', '#4285f4']
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: { position: 'bottom' }
+                    }
+                }
+            });
+
+            // Latency distribution
+            const latencyCtx = document.getElementById('latencyChart').getContext('2d');
+            new Chart(latencyCtx, {
+                type: 'bar',
+                data: {
+                    labels: ['<0.5s', '0.5-1s', '1-2s', '2-3s', '>3s'],
+                    datasets: [{
+                        label: 'Requests',
+                        data: [4200, 8900, 7300, 2800, 1400],
+                        backgroundColor: '#43C9ED'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: '#f0f0f0' } },
+                        x: { grid: { display: false } }
+                    }
+                }
+            });
+        }
+
+        function renderDetailCharts() {
+            // Real-time metrics
+            const realtimeCtx = document.getElementById('realtimeChart').getContext('2d');
+            new Chart(realtimeCtx, {
+                type: 'line',
+                data: {
+                    labels: Array.from({length: 30}, (_, i) => ``),
+                    datasets: [{
+                        label: 'Requests/min',
+                        data: Array.from({length: 30}, () => Math.floor(Math.random() * 50) + 20),
+                        borderColor: '#52c41a',
+                        backgroundColor: '#52c41a20',
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: '#f0f0f0' } },
+                        x: { display: false }
+                    }
+                }
+            });
+
+            // Cost over time
+            const costCtx = document.getElementById('detailCostChart').getContext('2d');
+            new Chart(costCtx, {
+                type: 'line',
+                data: {
+                    labels: Array.from({length: 24}, (_, i) => `${i}:00`),
+                    datasets: [{
+                        label: 'Cost ($)',
+                        data: Array.from({length: 24}, () => (Math.random() * 3 + 1).toFixed(2)),
+                        borderColor: '#ff9800',
+                        backgroundColor: '#ff980020',
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: { legend: { display: false } }
+                }
+            });
+
+            // Latency over time
+            const latencyCtx = document.getElementById('detailLatencyChart').getContext('2d');
+            new Chart(latencyCtx, {
+                type: 'line',
+                data: {
+                    labels: Array.from({length: 24}, (_, i) => `${i}:00`),
+                    datasets: [{
+                        label: 'Latency (s)',
+                        data: Array.from({length: 24}, () => (Math.random() * 0.5 + 0.8).toFixed(2)),
+                        borderColor: '#43C9ED',
+                        backgroundColor: '#43C9ED20',
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: { legend: { display: false } }
+                }
+            });
+        }
+
+        // Initialize
+        renderEndpointsList();
+        initDashboardCharts();
+
+        // Simulate real-time updates
+        setInterval(() => {
+            if (currentEndpoint) {
+                // Update a random metric
+                const increase = Math.floor(Math.random() * 10) + 1;
+                currentEndpoint.requests24h += increase;
+                document.getElementById('detailRequests').textContent = currentEndpoint.requests24h.toLocaleString();
+            }
+        }, 5000);
+    </script>
+</body>
+</html>
+
