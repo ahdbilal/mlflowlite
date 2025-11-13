@@ -1,8 +1,30 @@
-# MLflow AI Gateway
+# MLflowlite - Enterprise LLM Gateway
 
 **Keep your GenAI stack at the frontier without breaking production.**
 
-When new models (GPT-5, Claude Sonnet 4.5, Gemini 2.5) are released, platform teams need to **evaluate, compare, and gradually migrate** their apps — balancing quality, latency, cost, and governance. MLflow AI Gateway makes this seamless with a single unified API.
+When new models (GPT-5, Claude Sonnet 4.5, Gemini 2.5) are released, platform teams need to **evaluate, compare, and gradually migrate** their apps — balancing quality, latency, cost, and governance. MLflowlite makes this seamless with a unified API and management UI.
+
+## 🚀 New: Gateway UI
+
+Centralized web interface for managing LLM endpoints, monitoring usage, and tracking costs across teams.
+
+**Features:**
+- 📊 **Real-time Dashboard** - Aggregate metrics, cost tracking, latency monitoring
+- 🔌 **Endpoint Management** - Create, edit, and manage LLM provider endpoints
+- 👥 **Team Usage Tracking** - Monitor consumption by team (ML, Product, Research)
+- 📈 **Live Metrics** - Request rates, success rates, P95 latency (updates every 5s)
+- 🔗 **MLflow Integration** - Direct links to traces and prompt registry
+- 💰 **Cost Analytics** - Cost breakdown by provider and endpoint
+
+**Quick Start:**
+```bash
+venv311/bin/python mlflowlite/ui/gateway_server.py
+# Open http://localhost:5001/gateway
+```
+
+[📖 Complete Gateway UI Documentation](./GATEWAY_UI_FEATURES.md) | [🎯 Quick Start Guide](./RUN_GATEWAY_UI.md)
+
+---
 
 ## Core Use Case: Model Migration Workflow
 
@@ -15,101 +37,183 @@ When new models (GPT-5, Claude Sonnet 4.5, Gemini 2.5) are released, platform te
 
 **Key Benefit:** One API for all models. Switch providers, upgrade models, optimize costs — without rewriting code.
 
+---
+
 ## Installation
 
 ```bash
 git clone https://github.com/ahdbilal/mlflowlite.git
 cd mlflowlite
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+python -m venv venv311
+source venv311/bin/activate  # On Windows: venv311\Scripts\activate
 pip install -e .
 ```
 
-## Setup
-
-```bash
-cp .env.example .env
-# Add your API key to .env
-```
-
 ## Quick Start
+
+### 1. Run Demo Notebook
 
 ```bash
 ./start_notebook.sh
 # Open MLflowlite_Demo.ipynb
 ```
 
-**Note:** The demo notebook uses SQLite for MLflow tracking (required for `mlflow.genai.optimize_prompts()`). The database file `mlflow.db` is created automatically.
+The demo showcases:
+- Model migration (Sonnet → Haiku with cost optimization)
+- Prompt optimization with MLflow
+- A/B testing between model variants
+- Automatic MLflow tracing
+
+### 2. Start Gateway UI
+
+```bash
+venv311/bin/python mlflowlite/ui/gateway_server.py
+```
+Open http://localhost:5001/gateway to manage endpoints and view metrics.
+
+### 3. Start MLflow UI
+
+```bash
+mlflow ui --backend-store-uri sqlite:///mlflow.db
+```
+Open http://localhost:5000 to view traces, experiments, and prompts.
+
+---
 
 ## Features
 
-### 1. Automatic Tracing
-Every LLM call logged to MLflow. Zero config.
+### 🎯 Automatic MLflow Tracing
+
+Every LLM call is automatically traced to MLflow with full input/output capture.
 
 ```python
-import mlflowlite as ml
+import mlflowlite as mla
 
-response = ml.query(model='claude-3-5-sonnet', prompt='Hello')
-print(f"Cost: ${response.cost:.4f}")
-print(f"Latency: {response.latency:.2f}s")
-```
-
-### 2. Prompt Versioning
-Git-like version control for prompts.
-
-```python
-from mlflowlite import Agent
-
-agent = Agent(name="bot", model="claude-3-5-sonnet")
-result_v1 = agent.run("Query")
-
-agent.prompt_registry.add_version(
-    system_prompt="Improved prompt",
-    user_template="{query}",
-    examples=[],
-    metadata={"change": "More concise"}
+response = mla.completion(
+    model='claude-haiku-4-5-20251001',
+    messages=[{"role": "user", "content": "Hello!"}]
 )
-result_v2 = agent.run("Query")
 
-# Compare
-print(f"v1: {result_v1.trace.total_tokens} tokens")
-print(f"v2: {result_v2.trace.total_tokens} tokens")
+print(f"Response: {response.content}")
+print(f"Cost: ${response.cost:.6f}")      # From LiteLLM pricing database
+print(f"Trace: {response.trace_url}")     # Click to view in MLflow UI
 ```
 
-### 3. AI-Powered Optimization
-Get specific improvement suggestions.
+**What's Tracked:**
+- ✅ Request inputs (messages, model, temperature, max_tokens)
+- ✅ Response outputs (text, token usage, cost, latency)
+- ✅ Metadata (model, provider, finish reason)
+- ✅ Clickable trace URLs for easy debugging
+
+### 💰 Cost Tracking
+
+Accurate cost calculation using LiteLLM's built-in pricing database.
 
 ```python
-ml.set_suggestion_provider("claude-3-5-sonnet")
-ml.print_suggestions(response)
+response = mla.completion(
+    model='claude-sonnet-4-5-20250929',
+    messages=[{"role": "user", "content": "Explain quantum computing"}]
+)
+
+print(f"💰 Cost: ${response.cost:.6f}")
+print(f"📊 Tokens: {response.usage['total_tokens']}")
+print(f"⚡ Latency: {response.latency:.2f}s")
 ```
 
-### 4. Smart Routing
-Automatically select the best model based on query complexity.
+**Supports all major providers:**
+- OpenAI (GPT-4o, GPT-4 Turbo, GPT-3.5)
+- Anthropic (Claude 4.5 Sonnet/Haiku, Claude 3)
+- Azure OpenAI
+- Google (Gemini)
+- AWS Bedrock
+- Cohere
+
+### 🎨 Simplified Prompt Optimization
+
+One-line prompt optimization powered by MLflow's GEPA algorithm.
 
 ```python
-# Analyzes complexity and picks the right model
-decision, response = ml.smart_query("Explain quantum computing")
-print(f"Selected {decision.model}: {decision.reason}")
+optimized_prompt = mla.optimize_prompt(
+    prompt_template="Classify sentiment: {{text}}",
+    dataset=dataset_df,
+    model_from="claude-sonnet-4-5-20250929",  # Expensive
+    model_to="claude-haiku-4-5-20251001",     # Cheap
+    prompt_id="sentiment_classifier",
+    max_iterations=5,
+    save_optimized=True  # Auto-saves to MLflow
+)
+
+print(f"Optimized prompt:\n{optimized_prompt}")
 ```
 
-### 5. A/B Testing
-Data-driven model and prompt optimization.
+**What it does:**
+1. Tests your prompt on the dataset
+2. Generates improved versions using an LLM
+3. Evaluates each variant
+4. Returns the best-performing prompt
+5. Saves to MLflow prompt registry
+
+### 📝 Prompt Versioning & Registry
+
+MLflow-integrated prompt management with automatic versioning.
 
 ```python
-test = ml.create_ab_test(
+# Register a prompt
+response = mla.completion(
+    model="claude-haiku-4-5-20251001",
+    prompt_id="support_bot",
+    prompt_template="You are a helpful support agent. Answer: {{question}}",
+    prompt_variables={"question": "How do I reset my password?"}
+)
+
+# Prompts are automatically:
+# ✅ Saved to MLflow prompt registry
+# ✅ Versioned (v1, v2, v3...)
+# ✅ Linked to traces
+# ✅ Viewable in MLflow UI
+
+# View in UI: http://localhost:5000/#/prompts
+```
+
+### 🔄 A/B Testing
+
+Data-driven model and prompt optimization with built-in routing.
+
+```python
+from mlflowlite.routing import create_ab_test
+
+# Create A/B test
+ab_test = create_ab_test(
     name="model_test",
     variants={
-        'A': {'model': 'gpt-4o'},
-        'B': {'model': 'claude-3-5-sonnet'}
-    }
+        'prod': {'model': 'claude-sonnet-4-5-20250929'},
+        'new':  {'model': 'claude-haiku-4-5-20251001'}
+    },
+    split=[0.8, 0.2]  # 80/20 split
 )
-variant, response = test.run(messages=[...])
-test.print_report()  # See which performs better
+
+# Run test
+for text in test_inputs:
+    variant, resp = ab_test.run(
+        messages=[{"role": "user", "content": text}]
+    )
+    print(f"{variant}: ${resp.cost:.4f}")
+
+# View results
+ab_test.print_report()
 ```
 
-### 6. GenAI Evaluation
-MLflow-style evaluation with built-in and custom scorers. Systematically measure quality at scale.
+**Output:**
+```
+🏆 Winners:
+   • Best cost: new ($0.0001 vs $0.0027)
+   • Best latency: new (0.8s vs 1.2s)
+   • Best quality: prod (N/A)
+```
+
+### 📊 GenAI Evaluation
+
+MLflow-style evaluation with built-in and custom scorers.
 
 ```python
 from mlflowlite import evaluate, Correctness, Guidelines, scorer
@@ -124,7 +228,7 @@ eval_dataset = [
 
 # Define prediction function
 def qa_predict_fn(question: str) -> str:
-    return ml.completion(
+    return mla.completion(
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": question}]
     ).content
@@ -147,7 +251,6 @@ results = evaluate(
 
 # View results
 print(results.aggregate_scores)
-df = results.to_dataframe()
 ```
 
 **Built-in Scorers:**
@@ -157,56 +260,60 @@ df = results.to_dataframe()
 - `Faithfulness` - Check for hallucinations (RAG apps)
 - `Conciseness` - Check response length
 
-**Evaluate Traces:** Retroactively evaluate captured traces
-```python
-from mlflowlite import evaluate_with_traces
+### 🛡️ Reliability Features
 
-results = evaluate_with_traces(
-    traces=agent_traces,
-    scorers=[correctness_scorer, english_scorer],
+Built-in retry logic, timeouts, and fallback chains.
+
+```python
+response = mla.completion(
+    model='claude-sonnet-4-5-20250929',
+    messages=[...],
+    timeout=30,                                      # seconds
+    max_retries=5,                                   # retry attempts
+    fallback_models=['claude-haiku-4-5-20251001', 'gpt-4o']  # fallback chain
 )
 ```
 
-## API
+---
+
+## API Reference
 
 ### Main Functions
 
 ```python
-import mlflowlite as ml
+import mlflowlite as mla
 
-# Simple query
-response = ml.query(model='claude-3-5-sonnet', prompt='...', input='...')
+# LiteLLM-style completion (recommended)
+response = mla.completion(
+    model='claude-haiku-4-5-20251001',
+    messages=[{"role": "user", "content": "Hello"}]
+)
 
-# LiteLLM-style completion
-response = ml.completion(model='claude-3-5-sonnet', messages=[...])
-
-# With reliability features
-response = ml.completion(
-    model='claude-3-5-sonnet',
-    messages=[...],
-    timeout=30,                              # seconds
-    max_retries=5,                           # retry attempts
-    fallback_models=['gpt-4o', 'gpt-3.5-turbo']  # fallback chain
+# With prompt template
+response = mla.completion(
+    model='claude-haiku-4-5-20251001',
+    prompt_id="greeting_bot",
+    prompt_template="Greet the user: {{name}}",
+    prompt_variables={"name": "Alice"}
 )
 
 # Batch processing
-responses = ml.batch_completion(model='claude-3-5-sonnet', messages_list=[...])
+responses = mla.batch_completion(
+    model='claude-haiku-4-5-20251001',
+    messages_list=[...]
+)
 
-# Suggestions
-ml.print_suggestions(response, use_llm=False)  # heuristic
-ml.print_suggestions(response, use_llm=True)   # LLM-powered
-
-# Configuration
-ml.set_mlflow_tracking(enabled=True)
-ml.set_suggestion_provider("claude-3-5-sonnet")
-ml.set_timeout(60)                           # default timeout
-ml.set_max_retries(3)                        # default retries
-ml.set_fallback_models(['gpt-4o', 'gpt-3.5-turbo'])  # default fallbacks
+# Optimize prompts
+optimized = mla.optimize_prompt(
+    prompt_template="...",
+    dataset=df,
+    model_from="expensive-model",
+    model_to="cheap-model",
+    max_iterations=5
+)
 ```
 
 ### Response Object (OpenAI-Compatible)
-
-The Response object is fully compatible with OpenAI's API format, making it a drop-in replacement:
 
 ```python
 # OpenAI-compatible access
@@ -214,82 +321,140 @@ response.id                              # Unique completion ID
 response.object                          # "chat.completion"
 response.created                         # Unix timestamp
 response.model                           # Model used
-response.choices[0]["message"]["content"]  # Response text (OpenAI format)
-response.usage["total_tokens"]           # Token usage (OpenAI format)
+response.choices[0]["message"]["content"]  # Response text
+response.usage["total_tokens"]           # Token usage
 
-# Convenience attributes (same data, easier access)
+# Convenience attributes
 response.content      # Direct access to response text
 response.latency      # Response time in seconds
-response.cost         # Estimated cost in USD
+response.cost         # Cost from LiteLLM pricing (accurate!)
 response.scores       # Quality scores dict
 response.trace_id     # MLflow trace ID
+response.trace_url    # Clickable MLflow UI link
 
 # Convert to OpenAI JSON format
 response.to_dict()    # Full OpenAI-compatible dictionary
 ```
 
-**Drop-in replacement example:**
-```python
-# Code expecting OpenAI SDK format works unchanged!
-def process_openai_response(response):
-    content = response.choices[0]["message"]["content"]
-    tokens = response.usage["total_tokens"]
-    return {"content": content, "tokens": tokens}
-
-# Works with mlflowlite responses!
-response = ml.completion(model="gpt-4", messages=[...])
-result = process_openai_response(response)  # ✅ Works!
-```
-
-### Agent Class
+### Configuration
 
 ```python
-from mlflowlite import Agent
+import mlflow
 
-agent = Agent(
-    name="my_agent",
-    model="claude-3-5-sonnet",
-    system_prompt="You are a helpful assistant",
-    tools=[]  # optional: ['calculator', 'search']
-)
+# MLflow is auto-configured on first call
+# But you can customize:
+mlflow.set_tracking_uri("sqlite:///mlflow.db")
+mlflow.set_experiment("my_experiment")
 
-result = agent.run("Your query", evaluate=True)
-print(result.trace.summary())
+# Or set a unique experiment for demo purposes
+from datetime import datetime
+experiment_name = f"demo_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+mlflow.set_experiment(experiment_name)
 ```
 
-## View Traces
+---
 
-```bash
-mlflow ui
-# Open http://localhost:5000
-```
+## Gateway UI Features
+
+The Gateway UI provides a centralized interface for managing LLM endpoints:
+
+### Dashboard View
+- **Aggregate Metrics** - Total requests, active endpoints, costs, latency
+- **Request Charts** - Time-series visualization with filters (1H/6H/24H/7D)
+- **Cost Breakdown** - Pie chart by provider (OpenAI, Anthropic, Azure, Google)
+- **Latency Distribution** - Bar chart showing performance buckets
+- **Team Usage** - Consumption by ML Team, Product Team, Research Team
+
+### Endpoints View
+- **Endpoints List** - Table with metrics (requests, latency, cost, status)
+- **Create Endpoint** - Modal form for adding new endpoints
+- **Endpoint Details** - Click any row to see:
+  - Real-time metrics (updates every 5s)
+  - Usage metrics (6 cards: requests, success rate, latency, cost, tokens, errors)
+  - Cost and latency trend charts
+  - Direct links to MLflow traces and prompt registry
+
+### Provider Support
+- OpenAI (GPT-4o, GPT-4 Turbo, GPT-3.5)
+- Anthropic (Claude 4.5 Sonnet/Haiku, Claude 3)
+- Azure OpenAI
+- Google Gemini (1.5 Pro/Flash)
+- AWS Bedrock
+- Cohere
+
+[📖 See complete Gateway UI documentation](./GATEWAY_UI_FEATURES.md)
+
+---
 
 ## Models Supported
 
-- OpenAI: `gpt-4o`, `gpt-4-turbo`, `gpt-3.5-turbo`
-- Anthropic: `claude-3-5-sonnet`, `claude-3-opus`, `claude-3-sonnet`, `claude-3-haiku`
-- Google: `gemini-pro`, `gemini-1.5-pro`
-- Mistral: `mistral-large`, `mistral-medium`, `mistral-small`
+| Provider | Models | Notes |
+|----------|--------|-------|
+| **OpenAI** | `gpt-4o`, `gpt-4-turbo`, `gpt-3.5-turbo`, `gpt-4o-mini` | Most popular |
+| **Anthropic** | `claude-sonnet-4-5-20250929`, `claude-haiku-4-5-20251001`, `claude-3-opus`, `claude-3-sonnet`, `claude-3-haiku` | Latest versions |
+| **Azure OpenAI** | Same as OpenAI | Enterprise deployment |
+| **Google** | `gemini-1.5-pro`, `gemini-1.5-flash`, `gemini-pro` | Fast and cheap |
+| **Mistral** | `mistral-large`, `mistral-medium`, `mistral-small` | European option |
+| **AWS Bedrock** | Various | Enterprise AWS |
+| **Cohere** | `command-r-plus`, `command-r`, `command` | RAG-optimized |
+
+Powered by [LiteLLM](https://github.com/BerriAI/litellm) - supports 100+ models.
+
+---
 
 ## Examples
 
-- **`MLflowlite_Demo.ipynb`** - Start here! Interactive demo with all features
-- `complete_demo.py` - Full Python demo
+### Notebooks
+- **`MLflowlite_Demo.ipynb`** ⭐ - Start here! Complete demo with:
+  - Model migration workflow
+  - Prompt optimization
+  - A/B testing
+  - Automatic tracing
+
+### Python Scripts
 - `examples/quick_start.py` - Minimal example
-- `examples/openai_compatibility_demo.py` - OpenAI API format compatibility
+- `examples/openai_compatibility_demo.py` - OpenAI API format
 - `examples/reliability_demo.py` - Retry, timeout, fallbacks
 - `examples/routing_demo.py` - Smart routing & A/B testing
-- `examples/evaluation_demo.py` - GenAI evaluation with scorers
+- `examples/evaluation_demo.py` - GenAI evaluation
+- `examples/model_migration_cost_reduction.py` - Cost optimization
+
+### Gateway UI
+```bash
+# Start Gateway UI
+venv311/bin/python mlflowlite/ui/gateway_server.py
+
+# Open http://localhost:5001/gateway
+```
+
+---
 
 ## Troubleshooting
 
-**Multiple experiments?** Update to latest version - everything now uses one `llm_workspace` experiment.
+**Gateway UI Flask error?**
+```bash
+# Use the venv Python (not system Python)
+venv311/bin/python mlflowlite/ui/gateway_server.py
+```
 
-**Traces not showing?** Check: Machine Learning → Tracing (or notebook sidebar in Databricks).
+**Traces not showing in MLflow UI?**
+- Check MLflow UI is running: `mlflow ui --backend-store-uri sqlite:///mlflow.db`
+- Verify tracking URI: MLflow auto-configures to `sqlite:///mlflow.db`
+- Look in the correct experiment (MLflow creates one automatically)
 
-**API errors?** Make sure your API key is set: `os.environ['ANTHROPIC_API_KEY'] = 'your-key'`
+**Cost seems wrong?**
+- Cost is calculated using LiteLLM's pricing database
+- Updated regularly with latest model prices
+- Fallback to estimation if model not found
 
-**Custom experiment name?** Use `ml.set_experiment_name('your_experiment_name')`
+**API errors?**
+```python
+import os
+os.environ['ANTHROPIC_API_KEY'] = 'your-key-here'
+os.environ['OPENAI_API_KEY'] = 'your-key-here'
+```
+
+---
 
 ## Structure
 
@@ -301,11 +466,65 @@ mlflowlite/
 ├── llm/                    # LLM providers
 ├── tools/                  # Tool framework
 ├── tracing/                # MLflow integration
-├── prompts/                # Prompt versioning
-├── evaluation/             # Scoring
-└── optimization/           # DSPy
+├── prompts/                # Prompt versioning & registry
+├── evaluation/             # Scoring & evaluation
+├── optimization/           # Prompt optimization
+├── routing.py              # A/B testing & routing
+└── ui/                     # Gateway UI
+    ├── gateway/
+    │   ├── index.html          # Original UI
+    │   └── index_enhanced.html # Enhanced UI with dashboard
+    ├── gateway_server.py       # Flask server
+    └── README.md               # UI documentation
+
+examples/                   # Example scripts
+tests/                      # Test suite
+MLflowlite_Demo.ipynb      # Interactive demo notebook
 ```
+
+---
+
+## Key Improvements in Latest Version
+
+### ✅ MLflow Tracing
+- **Automatic tracing** - No setup required
+- **Full input/output capture** - See exact requests/responses
+- **Clickable trace URLs** - Easy debugging
+
+### ✅ Cost Tracking
+- **LiteLLM integration** - Accurate pricing from provider database
+- **Per-request costs** - Track spending precisely
+- **Cost analytics** - Dashboard view in Gateway UI
+
+### ✅ Prompt Optimization
+- **Simplified API** - One function call (`mla.optimize_prompt()`)
+- **Automatic saving** - Prompts saved to MLflow registry
+- **Iteration control** - Set max iterations for quick tests
+
+### ✅ Gateway UI
+- **Endpoint management** - Create, edit, delete endpoints
+- **Real-time metrics** - Live dashboard with updates
+- **Team tracking** - Monitor usage by team
+- **MLflow integration** - Direct links to traces and prompts
+
+---
+
+## Contributing
+
+Contributions welcome! Please open an issue or PR.
 
 ## License
 
 Apache 2.0
+
+---
+
+## Links
+
+- **GitHub**: https://github.com/ahdbilal/mlflowlite
+- **MLflow**: https://mlflow.org
+- **LiteLLM**: https://github.com/BerriAI/litellm
+
+---
+
+**Built with ❤️ for teams managing production LLM applications**
