@@ -464,6 +464,117 @@
         .back-btn:hover {
             background: #e0e0e0;
         }
+
+        /* Modal */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-overlay.active {
+            display: flex;
+        }
+
+        .modal {
+            background: white;
+            border-radius: 8px;
+            width: 90%;
+            max-width: 600px;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-title {
+            font-size: 20px;
+            font-weight: 600;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            font-size: 24px;
+            color: #999;
+            cursor: pointer;
+            padding: 0;
+            width: 30px;
+            height: 30px;
+        }
+
+        .close-btn:hover {
+            color: #333;
+        }
+
+        .modal-body {
+            padding: 24px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            font-size: 14px;
+            color: #333;
+        }
+
+        .form-label .required {
+            color: #ff4d4f;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #d0d0d0;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: #43C9ED;
+        }
+
+        .form-select {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #d0d0d0;
+            border-radius: 4px;
+            font-size: 14px;
+            background: white;
+        }
+
+        .form-hint {
+            font-size: 12px;
+            color: #999;
+            margin-top: 4px;
+        }
+
+        .modal-footer {
+            padding: 16px 24px;
+            border-top: 1px solid #e0e0e0;
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+        }
     </style>
 </head>
 <body>
@@ -484,12 +595,12 @@
     <div class="main-content">
         <!-- View Selector -->
         <div class="view-selector">
-            <button class="view-btn active" onclick="switchView('dashboard')">📊 Dashboard</button>
-            <button class="view-btn" onclick="switchView('endpoints')">🔌 Endpoints</button>
+            <button class="view-btn" onclick="switchView('dashboard')">📊 Dashboard</button>
+            <button class="view-btn active" onclick="switchView('endpoints')">🔌 Endpoints</button>
         </div>
 
         <!-- Dashboard View -->
-        <div id="dashboardView" class="view active">
+        <div id="dashboardView" class="view">
             <h1 style="font-size: 28px; font-weight: 600; margin-bottom: 24px;">Gateway Overview</h1>
             
             <!-- Key Metrics -->
@@ -627,9 +738,12 @@
         </div>
 
         <!-- Endpoints View -->
-        <div id="endpointsView" class="view">
+        <div id="endpointsView" class="view active">
             <div id="endpointsList">
-                <h1 style="font-size: 28px; font-weight: 600; margin-bottom: 24px;">Model Endpoints</h1>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+                    <h1 style="font-size: 28px; font-weight: 600; margin: 0;">Model Endpoints</h1>
+                    <button class="btn btn-primary" onclick="openCreateModal()">+ Create Endpoint</button>
+                </div>
                 
                 <div class="endpoints-card">
                     <table class="endpoints-table">
@@ -758,6 +872,92 @@
         </div>
     </div>
 
+    <!-- Create/Edit Endpoint Modal -->
+    <div class="modal-overlay" id="endpointModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 class="modal-title" id="modalTitle">Create Endpoint</h2>
+                <button class="close-btn" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="endpointForm">
+                    <div class="form-group">
+                        <label class="form-label">Endpoint Name <span class="required">*</span></label>
+                        <input type="text" class="form-input" id="endpointName" placeholder="e.g., prod-gpt4" required>
+                        <div class="form-hint">Unique identifier for this endpoint</div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Provider <span class="required">*</span></label>
+                        <select class="form-select" id="provider" required onchange="updateProviderFields()">
+                            <option value="">Select provider...</option>
+                            <option value="openai">OpenAI</option>
+                            <option value="anthropic">Anthropic</option>
+                            <option value="azure">Azure OpenAI</option>
+                            <option value="google">Google (Gemini)</option>
+                            <option value="aws">AWS Bedrock</option>
+                            <option value="cohere">Cohere</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group" id="modelGroup" style="display: none;">
+                        <label class="form-label">Model <span class="required">*</span></label>
+                        <select class="form-select" id="model">
+                            <!-- Options will be populated based on provider -->
+                        </select>
+                    </div>
+
+                    <div class="form-group" id="apiKeyGroup" style="display: none;">
+                        <label class="form-label">API Key <span class="required">*</span></label>
+                        <input type="password" class="form-input" id="apiKey" placeholder="sk-...">
+                        <div class="form-hint">Your provider API key (stored securely)</div>
+                    </div>
+
+                    <div class="form-group" id="baseUrlGroup" style="display: none;">
+                        <label class="form-label">Base URL</label>
+                        <input type="text" class="form-input" id="baseUrl" placeholder="https://api.openai.com/v1">
+                        <div class="form-hint">Override the default API endpoint</div>
+                    </div>
+
+                    <div class="form-group" id="regionGroup" style="display: none;">
+                        <label class="form-label">Region</label>
+                        <select class="form-select" id="region">
+                            <option value="us-east-1">US East (N. Virginia)</option>
+                            <option value="us-west-2">US West (Oregon)</option>
+                            <option value="eu-west-1">EU (Ireland)</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Team</label>
+                        <select class="form-select" id="team">
+                            <option value="ML Team">ML Team</option>
+                            <option value="Product Team">Product Team</option>
+                            <option value="Research Team">Research Team</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Description</label>
+                        <input type="text" class="form-input" id="description" placeholder="Production GPT-4 endpoint">
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Status</label>
+                        <select class="form-select" id="status">
+                            <option value="active">Active</option>
+                            <option value="inactive">Inactive</option>
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="saveEndpoint()">Save Endpoint</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         // Mock data
         const endpoints = [
@@ -824,6 +1024,104 @@
         ];
 
         let currentEndpoint = null;
+        let editingId = null;
+
+        const providerModels = {
+            openai: ['gpt-4o', 'gpt-4-turbo', 'gpt-3.5-turbo', 'gpt-4o-mini'],
+            anthropic: ['claude-sonnet-4-5-20250929', 'claude-haiku-4-5-20251001', 'claude-3-opus', 'claude-3-haiku'],
+            azure: ['gpt-4', 'gpt-35-turbo', 'gpt-4-32k'],
+            google: ['gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-pro'],
+            aws: ['anthropic.claude-v2', 'anthropic.claude-instant-v1', 'amazon.titan-text-express-v1'],
+            cohere: ['command-r-plus', 'command-r', 'command']
+        };
+
+        // Modal functions
+        function openCreateModal() {
+            editingId = null;
+            document.getElementById('modalTitle').textContent = 'Create Endpoint';
+            document.getElementById('endpointForm').reset();
+            document.getElementById('endpointModal').classList.add('active');
+            updateProviderFields();
+        }
+
+        function closeModal() {
+            document.getElementById('endpointModal').classList.remove('active');
+            editingId = null;
+        }
+
+        function updateProviderFields() {
+            const provider = document.getElementById('provider').value;
+            const modelGroup = document.getElementById('modelGroup');
+            const apiKeyGroup = document.getElementById('apiKeyGroup');
+            const baseUrlGroup = document.getElementById('baseUrlGroup');
+            const regionGroup = document.getElementById('regionGroup');
+            const modelSelect = document.getElementById('model');
+
+            // Show/hide fields based on provider
+            if (provider) {
+                modelGroup.style.display = 'block';
+                apiKeyGroup.style.display = 'block';
+                baseUrlGroup.style.display = 'block';
+
+                // Populate model options
+                modelSelect.innerHTML = providerModels[provider].map(model => 
+                    `<option value="${model}">${model}</option>`
+                ).join('');
+
+                // Show region for AWS
+                regionGroup.style.display = provider === 'aws' ? 'block' : 'none';
+            } else {
+                modelGroup.style.display = 'none';
+                apiKeyGroup.style.display = 'none';
+                baseUrlGroup.style.display = 'none';
+                regionGroup.style.display = 'none';
+            }
+        }
+
+        function saveEndpoint() {
+            const name = document.getElementById('endpointName').value;
+            const provider = document.getElementById('provider').value;
+            const model = document.getElementById('model').value;
+            const team = document.getElementById('team').value;
+            const description = document.getElementById('description').value;
+            const status = document.getElementById('status').value;
+
+            if (!name || !provider || !model) {
+                alert('Please fill in all required fields');
+                return;
+            }
+
+            if (editingId) {
+                // Update existing
+                const endpoint = endpoints.find(e => e.id === editingId);
+                endpoint.name = name;
+                endpoint.provider = provider;
+                endpoint.model = model;
+                endpoint.team = team;
+                endpoint.description = description;
+                endpoint.status = status;
+            } else {
+                // Create new
+                endpoints.push({
+                    id: Date.now(),
+                    name,
+                    provider,
+                    model,
+                    team,
+                    status,
+                    requests24h: 0,
+                    avgLatency: 0,
+                    cost24h: 0,
+                    successRate: 100,
+                    p95Latency: 0,
+                    avgTokens: 0,
+                    errorRate: 0
+                });
+            }
+
+            closeModal();
+            renderEndpointsList();
+        }
 
         // View switching
         function switchView(view) {
