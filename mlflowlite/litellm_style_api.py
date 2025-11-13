@@ -566,45 +566,36 @@ def _execute_completion(
             for msg in messages
         ]
         
-        # Call LLM within a trace span
-        active_span = None
-        llm_span = None
+        # Call LLM within a trace - using context manager ensures proper input/output capture
         if _mlflow_enabled:
             try:
-                llm_span = mlflow.start_span(name=f"llm_call", span_type="LLM")
-                llm_span.__enter__()
-                active_span = llm_span
-                
-                # Set inputs
-                llm_span.set_inputs({
-                    "messages": messages,
-                    "model": model,
-                    "temperature": temperature,
-                    "max_tokens": max_tokens
-                })
-                # Set attributes for better UI display
-                llm_span.set_attributes({
-                    "mlflow.traceRequestId": llm_span.request_id if hasattr(llm_span, 'request_id') else None,
-                    "mlflow.spanType": "LLM",
-                    "model": model
-                })
-                
-                # Make LLM call
-                llm_response = provider.complete(message_objects, tools=tools)
-                
-                # Set outputs
-                llm_span.set_outputs({
-                    "response": llm_response.content,
-                    "usage": llm_response.usage
-                })
+                with mlflow.start_span(name="llm_call", span_type="LLM") as llm_span:
+                    # Set inputs (these will become trace-level inputs)
+                    llm_span.set_inputs({
+                        "messages": messages,
+                        "model": model,
+                        "temperature": temperature,
+                        "max_tokens": max_tokens
+                    })
+                    
+                    # Set attributes for filtering/searchability
+                    llm_span.set_attributes({
+                        "mlflow.spanType": "LLM",
+                        "model": model,
+                        "temperature": temperature,
+                        "max_tokens": max_tokens
+                    })
+                    
+                    # Make LLM call
+                    llm_response = provider.complete(message_objects, tools=tools)
+                    
+                    # Set outputs (these will become trace-level outputs)
+                    llm_span.set_outputs({
+                        "response": llm_response.content,
+                        "usage": llm_response.usage
+                    })
             except Exception as e:
-                # If span creation fails, call without tracing
-                if llm_span:
-                    try:
-                        llm_span.__exit__(None, None, None)
-                    except:
-                        pass
-                    llm_span = None
+                # If tracing fails, call without it
                 llm_response = provider.complete(message_objects, tools=tools)
         else:
             llm_response = provider.complete(message_objects, tools=tools)
@@ -615,57 +606,19 @@ def _execute_completion(
         total_tokens = usage.get("total_tokens", 0)
         prompt_tokens = usage.get("prompt_tokens", 0)
         completion_tokens = usage.get("completion_tokens", 0)
-        cost = _estimate_cost(model, prompt_tokens, completion_tokens)
         
-        # Set trace-level inputs/outputs (this makes them visible in Traces UI)
-        if _mlflow_enabled and llm_span:
-            try:
-                # Update trace with summary information
-                from mlflow.tracing.fluent import update_current_trace
-                
-                # Format messages for display
-                formatted_messages = "\n\n".join([
-                    f"**{msg['role'].upper()}:**\n{msg['content'][:200]}" 
-                    for msg in messages
-                ])
-                
-                # Set request and response at trace level
-                update_current_trace(
-                    request_metadata={
-                        "model": model,
-                        "temperature": temperature,
-                        "max_tokens": max_tokens,
-                        "messages": formatted_messages
-                    },
-                    response_metadata={
-                        "total_tokens": total_tokens,
-                        "cost": cost,
-                        "finish_reason": llm_response.finish_reason
-                    }
-                )
-                
-                # Set trace attributes
-                trace_attrs = {
-                    "model": model,
-                    "provider": provider.provider_name,
-                    "latency_seconds": latency,
-                    "prompt_tokens": prompt_tokens,
-                    "completion_tokens": completion_tokens
-                }
-                
-                # 🔗 Add prompt linkage to trace attributes
-                if "prompt_name" in prompt_metadata:
-                    trace_attrs["prompt_name"] = prompt_metadata["prompt_name"]
-                if "prompt_version" in prompt_metadata:
-                    trace_attrs["prompt_version"] = prompt_metadata["prompt_version"]
-                if "prompt_registry_name" in prompt_metadata:
-                    trace_attrs["prompt_registry_name"] = prompt_metadata["prompt_registry_name"]
-                    # Add MLflow-specific prompt linkage attributes
-                    trace_attrs["mlflow.promptName"] = prompt_metadata["prompt_registry_name"]
-                    trace_attrs["mlflow.promptVersion"] = str(prompt_metadata["prompt_version"])
-            except Exception as e:
-                # If trace operations fail, continue anyway (older MLflow versions)
-                pass
+        # Use LiteLLM's built-in cost calculation (more accurate than manual estimation)
+        try:
+            import litellm
+            cost = litellm.completion_cost(
+                completion_response=llm_response._raw_response if hasattr(llm_response, '_raw_response') else None,
+                model=model,
+                messages=messages,
+                completion=llm_response.content
+            )
+        except Exception:
+            # Fallback to manual estimation if litellm cost calculation fails
+            cost = _estimate_cost(model, prompt_tokens, completion_tokens)
         
         scores = None
         if _auto_evaluate:
@@ -674,15 +627,6 @@ def _execute_completion(
                 latency=latency,
                 tokens=total_tokens,
             )
-            
-            # Add scores to the LLM span (not as a separate span)
-            if _mlflow_enabled and scores and llm_span:
-                try:
-                    # Add evaluation scores as attributes to the existing LLM span
-                    eval_attrs = {f"eval.{k}": v for k, v in scores.items()}
-                    llm_span.set_attributes(eval_attrs)
-                except Exception:
-                    pass
         
         # Get trace ID and run ID
         trace_id = "no_trace"
@@ -785,14 +729,7 @@ def _execute_completion(
         if platform.system() != 'Windows' and timeout > 0:
             signal.alarm(0)
         
-        # Close the LLM span first
-        if _mlflow_enabled and llm_span:
-            try:
-                llm_span.__exit__(None, None, None)
-            except Exception:
-                pass
-        
-        # Then end the run
+        # End the run (span is auto-closed by context manager)
         if _mlflow_enabled and run_context:
             try:
                 run_context.__exit__(None, None, None)
